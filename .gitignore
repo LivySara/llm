@@ -15,5 +15,3 @@ pre-*-bkcodeai
 bkcodeai.json
 
 **/.env
-
-claude/py-sdk/.env
