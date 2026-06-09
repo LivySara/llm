@@ -94,7 +94,7 @@ const ChatWindow: React.FC = () => {
   return (
     <div className="chat-window">
       <div className="chat-header">
-        <h1>🤖 AI 聊天助手</h1>
+        <h1>🤖 聊天助手</h1>
         <button className="clear-btn" onClick={handleClearHistory}>
           清除历史
         </button>
