@@ -89,9 +89,10 @@ def num_enclaves(grid):
     # DFS 函数
     def dfs(i, j):
         # 越界或已是海洋/访问
+        # 没理解
         if i < 0 or i >= m or j < 0 or j >= n or grid[i][j] != 1:
             return
-        # 标记当前单元格已访问
+        # 标记当前单元格已访问且不会被困
         grid[i][j] = 2
 
         # 四个方向递归
