@@ -3,6 +3,7 @@
 .bkui-*
 
 node_modules
+dist
 
 .next/
 

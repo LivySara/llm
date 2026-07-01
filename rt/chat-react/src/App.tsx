@@ -3,7 +3,7 @@
 import './App.css';
 // import { Input } from 'antd';
 
-import OldReactApi from './views/old-react-api'
+import Demo from './views/demo'
 
 function App() {
   // const [msg, setMsg] = useState('信息')
@@ -15,7 +15,7 @@ function App() {
           {msg}
           <Input placeholder='请输入信息' value={msg} onChange={(e) => setMsg(e.target.value)} />
         </div> */}
-        <OldReactApi />
+        <Demo />
     </div>
   );
 }
