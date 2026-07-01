@@ -3,6 +3,7 @@ from django.db import models
 class Conversation(models.Model):
     """聊天会话"""
     conversation_id = models.CharField(max_length=100, unique=True, db_index=True)
+    title = models.CharField(max_length=255, default='新对话')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -11,7 +12,7 @@ class Conversation(models.Model):
         ordering = ['-updated_at']
     
     def __str__(self):
-        return f"Conversation {self.conversation_id}"
+        return f"Conversation {self.conversation_id}: {self.title}"
 
 
 class Message(models.Model):

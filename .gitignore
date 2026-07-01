@@ -16,3 +16,5 @@ pre-*-bkcodeai
 bkcodeai.json
 
 **/.env
+
+venv
