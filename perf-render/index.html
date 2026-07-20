@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>性能优化 - 虚拟列表</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box }
+        #container {
+            height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <script>
+        const container = document.getElementById('container');
+        container.addEventListener('scroll', () => {
+            console.log(container.scrollTop, 'scrollTop');
+        });
+        const total = 1000;
+        const fragment = document.createDocumentFragment();
+
+        for (let i = 0; i < total; i++) {
+            const item = document.createElement('div');
+            item.textContent = `Item ${i + 1}`;
+            item.style.padding = '4px 8px';
+            item.style.borderBottom = '1px solid #eee';
+            fragment.appendChild(item);
+        }
+
+        container.appendChild(fragment);
+    </script>
+</body>
+</html>
