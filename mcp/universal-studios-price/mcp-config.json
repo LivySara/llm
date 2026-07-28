@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "universal-studios-beijing-price": {
+      "command": "python",
+      "args": [
+        "d:/out_of_work_arrange/practice-project/llm/mcp/universal-studios-price/server.py"
+      ]
+    }
+  }
+}
