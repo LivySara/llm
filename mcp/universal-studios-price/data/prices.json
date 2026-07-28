@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "park": "北京环球影城",
+    "currency": "CNY",
+    "unit": "元",
+    "maintained_by": "人工维护",
+    "last_updated": "2026-07-28",
+    "note": "价格为人工维护的参考价，非实时官方报价。如需更新请联系数据维护者或使用 update_price / update_calendar 工具。"
+  },
+  "tickets": [
+    {
+      "id": "single_offpeak",
+      "name": "单日门票（淡季/平日）",
+      "type": "single_day",
+      "tier": "offpeak",
+      "price": 418,
+      "desc": "指定平日入园，适用于非节假日工作日。"
+    },
+    {
+      "id": "single_peak",
+      "name": "单日门票（旺季/周末及假日）",
+      "type": "single_day",
+      "tier": "peak",
+      "price": 638,
+      "desc": "指定周末、法定节假日及暑期等高峰日入园。"
+    },
+    {
+      "id": "single_premium",
+      "name": "单日门票（特定日）",
+      "type": "single_day",
+      "tier": "premium",
+      "price": 748,
+      "desc": "春节、国庆等特定高峰日适用，价格最高档。"
+    },
+    {
+      "id": "child",
+      "name": "儿童单日票",
+      "type": "child",
+      "tier": "offpeak",
+      "price": 315,
+      "desc": "适用于 3 至 11 周岁（含）儿童，随平日票价浮动。"
+    },
+    {
+      "id": "senior",
+      "name": "老人单日票",
+      "type": "senior",
+      "tier": "offpeak",
+      "price": 315,
+      "desc": "适用于 65 周岁（含）以上长者，随平日票价浮动。"
+    },
+    {
+      "id": "express_standard",
+      "name": "环球优速通（标准版）",
+      "type": "express",
+      "tier": "addon",
+      "price": 450,
+      "desc": "可优先体验部分热门项目，价格随日期浮动。"
+    },
+    {
+      "id": "annual_basic",
+      "name": "年卡（轻享）",
+      "type": "annual",
+      "tier": "membership",
+      "price": 988,
+      "desc": "一年内指定日期多次入园的基础年卡。"
+    }
+  ],
+  "calendar": {
+    "2026-08-01": { "tier": "offpeak", "single": 418, "note": "周六但属官方淡季价示例" },
+    "2026-08-02": { "tier": "offpeak", "single": 418 },
+    "2026-10-01": { "tier": "premium", "single": 748, "note": "国庆假期" },
+    "2026-10-02": { "tier": "premium", "single": 748, "note": "国庆假期" }
+  }
+}
