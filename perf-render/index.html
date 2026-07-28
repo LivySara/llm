@@ -15,9 +15,104 @@
 <body>
     <div id="container"></div>
     <script>
+        const scrollData = {
+            offset: 0,
+            // 虚拟占位区
+            virtualSize: 0,
+            // 预渲染项数
+            buffer: 0,
+        }
+        // 实际渲染起始索引(包含 buffer 预渲染项)
+        const renderRange = {
+            start: 0,
+            end: 0
+        }
+        // 滚动方向
+        let scrollDirection = 'down'
+        // 可视区域起始索引
+        const viewRange = {
+            start: 0,
+            end: 0
+        }
+        // 已渲染每项数据的实际高度
+        const renderItemSizeMap = new Map();
+        // 获取每项渲染的高度
+        const getItemSize = (itemKey) => {
+            return renderItemSizeMap.get(itemKey) ?? 20;
+        }
+        // 获取[start, end)区间内的渲染高度
+        const getItemRangeSize = (start, end) => {
+            let size = 0;
+            for (let i = start; i < end; i++) {
+                const size = getItemSize(i);
+                size += size;
+            }
+            return size;
+        }
         const container = document.getElementById('container');
+        // 获取滚动距离
+        const getOffset = () => {
+            return container.scrollTop;
+        }
+        // 获取到可视区域起始顶点的距离
+        const getVirtualSizeToViewStart = () => {
+            return scrollData.virtualSize + getItemRangeSize(renderRange.start, viewRange.start);
+        }
+        const calcRange = () => {
+            // 记录可视区域起始位置
+            let start = viewRange.start;
+            // 计算已滚动出去的高度
+            const offset = getOffset();
+            // 可视区域起始顶部距离
+            let virtualSizeToViewStart = getVirtualSizeToViewStart();
+
+            if(scrollDirection === 'up') {
+                // 滚动位置在可视区域起始顶部 ~ 可视区域起始底部之间，则viewRange.start不变，即start不变
+                if(offset >= virtualSizeToViewStart) return;
+                
+                // 更新viewRange.start
+                for (let index = start - 1; index >= 0; index--) {
+                    // 计算当前项的渲染高度
+                    const itemSize = getItemSize(index);
+                    virtualSizeToViewStart -= itemSize;
+
+                    if(offset >= virtualSizeToViewStart && offset < virtualSizeToViewStart + itemSize) {
+                        start = index;
+                        break;
+                    }
+                }
+            }
+
+            if(scrollDirection === 'down') {
+                // 避免了在边界情况下遍历整个剩余列表，疑问？？
+                if(offset <= virtualSizeToViewStart) return;
+                
+                // 更新viewRange.start
+                // 向下滚动时，start位置列表项依然可能在可视区域顶部，所以需要从start开始遍历
+                const total = Math.min(total, start + scrollData.buffer);
+                for (let index = start; index < total; index++) {
+                    // 计算当前项的渲染高度
+                    const itemSize = getItemSize(index);
+                    if(offset >= virtualSizeToViewStart && offset < virtualSizeToViewStart + itemSize) {
+                        start = index;
+                        break;
+                    }
+                    virtualSizeToViewStart += itemSize;
+                }
+            }
+
+            if(start !== viewRange.start) {
+                // 更新可视区域起始位置
+                viewRange.start = start;
+            }
+        }
         container.addEventListener('scroll', () => {
-            console.log(container.scrollTop, 'scrollTop');
+            const offset = getOffset();
+            if (scrollData.offset === offset) return;
+            scrollDirection = offset > scrollData.offset ? 'down' : 'up';
+            scrollData.offset = offset;
+            // 确认渲染区间
+            calcRange();
         });
         const total = 1000;
         const fragment = document.createDocumentFragment();
