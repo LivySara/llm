@@ -16,5 +16,6 @@ pre-*-bkcodeai
 bkcodeai.json
 
 **/.env
-
-venv
+**/venv
+**/.venv
+**/__pycache__
