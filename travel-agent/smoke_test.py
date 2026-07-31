@@ -4,6 +4,7 @@
 连接 -> 列出工具 -> 转 OpenAI functions -> 实际调用一次。
 """
 import asyncio
+import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -14,7 +15,11 @@ SERVER_PATH = "d:/out_of_work_arrange/practice-project/llm/mcp/universal-studios
 
 
 async def main():
-    params = StdioServerParameters(command="python", args=[SERVER_PATH])
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=[SERVER_PATH],
+        env=__import__("os").environ.copy(),
+    )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
