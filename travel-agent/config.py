@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 MODEL = os.getenv("MODEL", "deepseek-chat")
 SERVER_PATH = os.getenv("SERVER_PATH")
 
