@@ -6,23 +6,29 @@
 → 给出最终方案 → 把对话与规划 **持久化** 到磁盘。
 
 > 这一步实证了：Agent（循环）= LLM + 规划 + 工具 + 记忆；工具接入 = MCP；
-> 单步调用 = Function Calling；规划 = Plan-and-Execute；记忆 = 跨会话持久化。
+> 单步调用 = Function Calling；规划 = Plan-and-Execute；记忆 = 跨会话持久化；
+> 多能力 = 同时挂载多个 MCP server（票价 + 攻略）。
 
-## 架构（Phase 2）
+## 架构（Phase 3 · 多 MCP server）
 
 ```
 用户 -> Agent(ReAct 循环) -> DeepSeek(LLM 大脑)
         |  ├─ planner（规划拆解 / 完成度自检）
-        |  ├─ MCP Client -> server.py(票价工具) -> prices.json
+        |  ├─ MCP Client ─┬─ server① 票价工具  -> prices.json
+        |  │             └─ server② 攻略工具  -> 内置静态数据
         |  └─ Memory(对话历史 + 规划，可存盘恢复)
 ```
 
-- `agent.py`      ReAct 主循环 + 规划/持久化编排 + CLI 入口
+> `agent.py` 用 `AsyncExitStack` 同时拉起多个 stdio server，把它们的工具合并成一个
+> `functions` 列表，并用 `tool_session_map`（工具名 → session）把每次调用路由到正确的 server。
+
+- `agent.py`      ReAct 主循环 + 多 server 连接/路由 + 规划/持久化编排 + CLI 入口
 - `planner.py`    规划模块：把需求拆成步骤、自检完成度
 - `mcp_client.py` 工具 schema 转换 / 工具调用
 - `memory.py`     对话历史与工具上下文（含上下文长度保护 + 存盘/恢复）
-- `config.py`     读取 `.env`
-- `server.py`（外部复用）  你已有的 MCP server，不做改动
+- `config.py`     读取 `.env`（支持 `SERVER_PATHS` 多 server）
+- `../mcp/universal-studios-price/server.py`（外部复用）  票价 MCP server
+- `../mcp/universal-studios-guide/server.py`（Phase 3 新增）  攻略 MCP server（贴士/必玩/餐饮/最佳日期/拥挤度）
 - `memory_store.json`（运行期生成）  跨会话持久化的记忆文件
 
 ## 运行
@@ -31,7 +37,7 @@
 cd travel-agent
 pip install -r requirements.txt
 
-# 编辑 .env，填好真实 key 与 SERVER_PATH
+# 编辑 .env：填好真实 key，并在 SERVER_PATHS 中列出所有要连接的 server（逗号分隔）
 python agent.py
 ```
 
@@ -61,8 +67,8 @@ python agent.py
 | `/new`  | 清空会话，开始新规划 |
 | `exit` / `退出` | 结束对话（记忆已自动存盘） |
 
-## 下一步（Phase 3+）
+## 下一步（Phase 4+）
 
-- 接入第二个 MCP server（天气 / 攻略），让方案更真实
 - 规划升级为「子目标递归拆解」（multi-agent / 分层规划）
 - 上下文保护从「截断」升级为「LLM 摘要压缩」
+- 接入真实天气 API（替换静态攻略数据中的拥挤度估算）
