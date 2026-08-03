@@ -7,6 +7,8 @@ Phase 2 增强：
 
 import json
 
+from planner import summarize_dialogue
+
 MAX_CONTEXT_MESSAGES = 20
 
 
@@ -14,7 +16,8 @@ class Memory:
     def __init__(self, system_prompt=None):
         self.system_prompt = system_prompt
         self.messages = []
-        self.plan = []  # 规划步骤清单（字符串列表）
+        self.plan = []      # 规划步骤（Phase 4 起为分层节点树）
+        self.summary = ""   # 已压缩丢弃的早期对话摘要（增量累积）
 
     def add(self, role, content):
         """追加一条普通消息（system / user / assistant）。"""
@@ -51,10 +54,18 @@ class Memory:
         self.plan = list(steps)
 
     def export(self):
-        """导出可直接传给 LLM 的 messages 列表，带上下文长度保护。"""
+        """导出可直接传给 LLM 的 messages 列表，带上下文长度保护。
+
+        Phase 4 起：被压缩丢弃的早期对话不会丢失，而是以「摘要」形式
+        作为一条 system 消息前置注入；同时仍保留孤儿 tool 结果的安全修剪。
+        """
         out = []
         if self.system_prompt:
             out.append({"role": "system", "content": self.system_prompt})
+
+        # 前置早期对话摘要（Phase 4 新增，替代旧版的「已省略 N 条」硬截断）
+        if self.summary:
+            out.append({"role": "system", "content": "（以下是早期对话的摘要）\n" + self.summary})
 
         # 上下文保护：只保留最近 MAX_CONTEXT_MESSAGES 条
         recent = self.messages[-MAX_CONTEXT_MESSAGES:]
@@ -63,13 +74,30 @@ class Memory:
         while recent and recent[0]["role"] == "tool":
             recent = recent[1:]
 
-        if len(self.messages) > len(recent):
-            dropped = len(self.messages) - len(recent)
-            note = f"（已省略最早的 {dropped} 条对话以控制上下文长度）"
-            out.append({"role": "system", "content": note})
-
         out.extend(recent)
         return out
+
+    def compress(self, client):
+        """Phase 4 上下文压缩：当对话超过窗口时，把最早的一批摘要化并从 messages 移除。
+
+        被压缩的部分不会丢信息，而是合并进 self.summary（增量累积，越压越精炼）。
+        注意：调用前需保证不会切断 tool_call 对——若前缀末尾是带 tool_calls 的
+        assistant，则把紧随其后的 tool 结果也一并纳入压缩前缀。
+        """
+        drop_n = len(self.messages) - MAX_CONTEXT_MESSAGES
+        if drop_n <= 0:
+            return
+        # 不切断 tool_call 对：若前缀末条是带 tool_calls 的 assistant，扩展前缀包含其后 tool 结果
+        while drop_n < len(self.messages):
+            cand = self.messages[drop_n - 1]
+            if cand.get("role") == "assistant" and cand.get("tool_calls"):
+                drop_n += 1
+            else:
+                break
+        prefix = self.messages[:drop_n]
+        self.messages = self.messages[drop_n:]
+        prefix_text = json.dumps(prefix, ensure_ascii=False)
+        self.summary = summarize_dialogue(client, prefix_text, self.summary)
 
     def save(self, path):
         """把记忆序列化到 JSON 文件（含 system_prompt / 对话 / 规划）。"""
@@ -79,6 +107,7 @@ class Memory:
                     "system_prompt": self.system_prompt,
                     "messages": self.messages,
                     "plan": self.plan,
+                    "summary": self.summary,
                 },
                 f,
                 ensure_ascii=False,
@@ -96,6 +125,7 @@ class Memory:
         m = cls(data.get("system_prompt"))
         m.messages = data.get("messages", [])
         m.plan = data.get("plan", [])
+        m.summary = data.get("summary", "")
         return m
 
     def clear(self):

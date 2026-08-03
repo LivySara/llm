@@ -24,7 +24,7 @@ from openai import OpenAI
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, SERVER_PATHS
 from mcp_client import call_mcp_tool, to_openai_functions
 from memory import Memory
-from planner import make_plan, review_plan
+from planner import decompose, review_plan
 
 SYSTEM_PROMPT = """你是一个北京环球影城旅行规划助手。
 你可以调用工具查询门票价格（含按票种、按日期、按关键词检索）。
@@ -35,14 +35,29 @@ MAX_TOOL_TURNS = 6
 MEMORY_FILE = "memory_store.json"
 
 
-def _print_plan(plan):
-    """打印当前规划步骤。"""
-    if not plan:
+def _flatten_plan(nodes):
+    """把分层节点树拍平成目标字符串列表，供 review_plan 等扁平接口使用。"""
+    out = []
+    for n in nodes:
+        out.append(n["goal"])
+        if n.get("sub"):
+            out.extend(_flatten_plan(n["sub"]))
+    return out
+
+
+def _print_plan(nodes, indent=0):
+    """递归打印分层规划（缩进表示层级）。"""
+    if not nodes:
         print("（暂无规划）")
         return
-    print("📋 当前规划：")
-    for i, step in enumerate(plan, 1):
-        print(f"  {i}. {step}")
+    if indent == 0:
+        print("📋 当前规划：")
+    for i, n in enumerate(nodes, 1):
+        prefix = "  " * indent + f"{i}. "
+        sub = " ▸" if n.get("sub") else ""
+        print(f"{prefix}{n['goal']}{sub}")
+        if n.get("sub"):
+            _print_plan(n["sub"], indent + 1)
 
 
 async def react(client, tool_session_map, functions, memory):
@@ -128,7 +143,7 @@ async def main():
 
     async with stack:
         print("=" * 50)
-        print("北京环球影城旅行规划 Agent（Phase 3 · 多 MCP server）")
+        print("北京环球影城旅行规划 Agent（Phase 4 · 分层规划 + 摘要压缩）")
         print(f"已连接 {len(sessions)} 个 MCP server，可用工具：", [t["function"]["name"] for t in functions])
         print("命令：/new 清空会话 | /plan 查看规划 | exit 退出")
         print("=" * 50)
@@ -154,26 +169,28 @@ async def main():
 
             memory.add("user", q)
 
-            # ① 规划：先把需求拆成步骤清单（Plan-and-Execute 的 Plan 阶段）
-            steps = make_plan(client, q, functions)
-            if steps:
-                memory.set_plan(steps)
-                print("\n📋 规划：")
-                for i, s in enumerate(steps, 1):
-                    print(f"  {i}. {s}")
+            # ① 规划：把需求递归拆成多层子目标（Plan-and-Execute 的 Plan 阶段）
+            nodes = decompose(client, q, functions)
+            if nodes:
+                memory.set_plan(nodes)
+                _print_plan(nodes)
 
             # ② 执行：进入 ReAct 循环完成规划（工具按名路由到对应 server）
             await react(client, tool_session_map, functions, memory)
 
-            # ③ 自检：规划完成度（Plan-and-Execute 的 Review 阶段）
-            if memory.plan:
-                review = review_plan(client, memory.plan, memory)
+            # ③ 上下文压缩：超出窗口的早期对话摘要化，而非硬截断
+            memory.compress(client)
+
+            # ④ 自检：规划完成度（扁平化后与对话记录比对）
+            flat = _flatten_plan(memory.plan)
+            if flat:
+                review = review_plan(client, flat, memory)
                 print("\n✅ 已完成：", review["completed"] or "无")
                 print("⏳ 未完成：", review["remaining"] or "无")
                 if review["all_done"]:
                     print("🎉 规划已全部完成。")
 
-            # ④ 持久化：把对话与规划存盘，下次可恢复
+            # ⑤ 持久化：把对话、规划与摘要存盘，下次可恢复
             memory.save(MEMORY_FILE)
             print(f"[记忆] 已保存到 {MEMORY_FILE}")
 
