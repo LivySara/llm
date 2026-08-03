@@ -23,6 +23,7 @@ from openai import OpenAI
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, SERVER_PATH
 from mcp_client import call_mcp_tool, to_openai_functions
 from memory import Memory
+from planner import make_plan, review_plan
 
 SYSTEM_PROMPT = """你是一个北京环球影城旅行规划助手。
 你可以调用工具查询门票价格（含按票种、按日期、按关键词检索）。
@@ -30,6 +31,17 @@ SYSTEM_PROMPT = """你是一个北京环球影城旅行规划助手。
 请用简体中文、清晰分步地回答，必要时列出计算过程。"""
 
 MAX_TOOL_TURNS = 6
+MEMORY_FILE = "memory_store.json"
+
+
+def _print_plan(plan):
+    """打印当前规划步骤。"""
+    if not plan:
+        print("（暂无规划）")
+        return
+    print("📋 当前规划：")
+    for i, step in enumerate(plan, 1):
+        print(f"  {i}. {step}")
 
 
 async def react(client, session, functions, memory):
@@ -75,7 +87,14 @@ async def react(client, session, functions, memory):
 
 async def main():
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
-    memory = Memory(SYSTEM_PROMPT)
+
+    # 尝试恢复上次会话（跨会话记忆）
+    memory = Memory.load(MEMORY_FILE) if os.path.exists(MEMORY_FILE) else None
+    if memory is not None:
+        print(f"[记忆] 已恢复上次会话（{len(memory.messages)} 条消息，{len(memory.plan)} 个规划步骤）")
+    else:
+        memory = Memory(SYSTEM_PROMPT)
+
     # 关键：用 sys.executable 启动 server 子进程，保证和当前 agent 用同一个解释器/环境，
     # 避免 venv 里 command="python" 解析到别的 python 导致 server 因缺 mcp 而崩溃。
     params = StdioServerParameters(
@@ -93,10 +112,12 @@ async def main():
             functions = to_openai_functions(tool_list.tools)
 
             print("=" * 50)
-            print("北京环球影城旅行规划 Agent（MVP）")
+            print("北京环球影城旅行规划 Agent（Phase 2）")
             print("可用工具：", [t.name for t in tool_list.tools])
-            print("输入 exit / 退出 结束对话")
+            print("命令：/new 清空会话 | /plan 查看规划 | exit 退出")
             print("=" * 50)
+            if memory.plan:
+                _print_plan(memory.plan)
 
             while True:
                 try:
@@ -105,10 +126,40 @@ async def main():
                     break
                 if q.lower() in ("exit", "quit", "q", "退出"):
                     break
+                if q.lower() == "/new":
+                    memory = Memory(SYSTEM_PROMPT)
+                    print("[记忆] 已清空，开始新会话。")
+                    continue
+                if q.lower() == "/plan":
+                    _print_plan(memory.plan)
+                    continue
                 if not q:
                     continue
+
                 memory.add("user", q)
+
+                # ① 规划：先把需求拆成步骤清单（Plan-and-Execute 的 Plan 阶段）
+                steps = make_plan(client, q, functions)
+                if steps:
+                    memory.set_plan(steps)
+                    print("\n📋 规划：")
+                    for i, s in enumerate(steps, 1):
+                        print(f"  {i}. {s}")
+
+                # ② 执行：进入 ReAct 循环完成规划
                 await react(client, session, functions, memory)
+
+                # ③ 自检：规划完成度（Plan-and-Execute 的 Review 阶段）
+                if memory.plan:
+                    review = review_plan(client, memory.plan, memory)
+                    print("\n✅ 已完成：", review["completed"] or "无")
+                    print("⏳ 未完成：", review["remaining"] or "无")
+                    if review["all_done"]:
+                        print("🎉 规划已全部完成。")
+
+                # ④ 持久化：把对话与规划存盘，下次可恢复
+                memory.save(MEMORY_FILE)
+                print(f"[记忆] 已保存到 {MEMORY_FILE}")
 
     print("\n再见！")
 
