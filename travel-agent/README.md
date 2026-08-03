@@ -9,18 +9,24 @@
 > 单步调用 = Function Calling；规划 = Plan-and-Execute；记忆 = 跨会话持久化；
 > 多能力 = 同时挂载多个 MCP server（票价 + 攻略）。
 
-## 架构（Phase 3 · 多 MCP server）
+## 架构（Phase 4 · 分层规划 + 摘要压缩）
 
 ```
 用户 -> Agent(ReAct 循环) -> DeepSeek(LLM 大脑)
-        |  ├─ planner（规划拆解 / 完成度自检）
+        |  ├─ planner.decompose（需求 -> 多层子目标树，递归拆解）
+        |  ├─ planner.review_plan（完成度自检）
         |  ├─ MCP Client ─┬─ server① 票价工具  -> prices.json
         |  │             └─ server② 攻略工具  -> 内置静态数据
-        |  └─ Memory(对话历史 + 规划，可存盘恢复)
+        |  └─ Memory(对话历史 + 分层规划 + 早期对话摘要，可存盘恢复)
+                └─ compress()：超窗口时把早期对话 LLM 摘要化，替代硬截断
 ```
 
-> `agent.py` 用 `AsyncExitStack` 同时拉起多个 stdio server，把它们的工具合并成一个
-> `functions` 列表，并用 `tool_session_map`（工具名 → session）把每次调用路由到正确的 server。
+> - `agent.py` 用 `AsyncExitStack` 同时拉起多个 stdio server，把它们的工具合并成一个
+>   `functions` 列表，并用 `tool_session_map`（工具名 → session）把每次调用路由到正确的 server。
+> - Phase 4 起，规划从「扁平步骤」升级为「分层子目标树」：`decompose` 先用 `make_plan`
+>   拆出顶层步骤，再对每个判定为「复合子目标」的步骤递归拆解（最多 `MAX_PLAN_DEPTH` 层）。
+> - 上下文保护从「直接丢弃早期对话」升级为「`compress()` 用 LLM 把早期对话摘要化并保留」，
+>   长对话下既不超窗口、也不丢关键信息。
 
 - `agent.py`      ReAct 主循环 + 多 server 连接/路由 + 规划/持久化编排 + CLI 入口
 - `planner.py`    规划模块：把需求拆成步骤、自检完成度
@@ -67,8 +73,8 @@ python agent.py
 | `/new`  | 清空会话，开始新规划 |
 | `exit` / `退出` | 结束对话（记忆已自动存盘） |
 
-## 下一步（Phase 4+）
+## 下一步（Phase 5+）
 
-- 规划升级为「子目标递归拆解」（multi-agent / 分层规划）
-- 上下文保护从「截断」升级为「LLM 摘要压缩」
-- 接入真实天气 API（替换静态攻略数据中的拥挤度估算）
+- 接入真实天气 API（替换静态攻略数据中的拥挤度估算）—— 需要外部 API key / 网络
+- 规划真正「落地执行」子目标：为每个子节点维护独立完成状态，而非整体扁平自检
+- 多 Agent 协作：把不同子目标分派给专长不同的子 Agent（票价 / 攻略 / 行程编排）
