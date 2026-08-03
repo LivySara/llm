@@ -24,6 +24,7 @@ export interface ConnectFrame {
   role: Role;
   scopes: Scope[];
   token?: string; // 启用 token 认证时由客户端携带
+  sessionKey?: string; // 要加入的事件 channel；缺省为 "default"
 }
 
 export interface RequestFrame {
