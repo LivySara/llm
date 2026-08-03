@@ -87,12 +87,8 @@ export class Gateway {
     const state: ConnectionState = { ws, scopes: [], authed: this.cfg.auth === "none", helloDone: false };
     this.connections.add(state);
 
-    // 订阅事件总线：服务端主动推送（event 帧）
-    state.unsub = this.bus.subscribe((frame) => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: "event", ...frame }));
-      }
-    });
+    // 注意：订阅推迟到握手成功后，按客户端声明的 sessionKey 加入对应 channel（见 handleConnect）。
+    // 这样不同 sessionKey 的连接各自隔离，session.message 只会到达同 channel 的订阅者。
 
     ws.on("message", (data) => this.onMessage(state, data.toString()));
     ws.on("close", () => {
@@ -144,6 +140,15 @@ export class Gateway {
     state.scopes = normalizeScopes(f.scopes);
     state.authed = true;
     state.helloDone = true;
+
+    // 握手成功后，按 sessionKey 把该连接订阅进对应 channel（定向投递的基础）。
+    const sk = f.sessionKey ?? "default";
+    state.unsub = this.bus.subscribe(sk, (frame) => {
+      if (state.ws.readyState === state.ws.OPEN) {
+        state.ws.send(JSON.stringify({ type: "event", ...frame }));
+      }
+    });
+
     this.send(state.ws, {
       type: "hello-ok",
       protocol: neg.protocol,
@@ -155,7 +160,7 @@ export class Gateway {
   private async handleRequest(state: ConnectionState, id: string, method: string, params: unknown): Promise<void> {
     const ctx: MethodContext = {
       scopes: state.scopes,
-      emit: (e, p) => this.bus.publish(e, p),
+      emit: (channel, e, p) => this.bus.publish(channel, e, p),
     };
     const out = await this.router.dispatch(id, method, params, ctx);
     this.send(state.ws, { type: "response", id, ...out });

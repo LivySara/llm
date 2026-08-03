@@ -13,14 +13,9 @@ export function registerSessionSend(router: Router, bus: EventBus): void {
     }
     const sessionKey = p.sessionKey ?? "default";
 
-    // 广播：所有订阅者都会收到 session.message 事件（含发起方）。
-    bus.publish("session.message", { sessionKey, text: p.text });
+    // 定向投递：只发给 join 了同一 sessionKey 的订阅者（ChannelRegistry 隔离）。
+    bus.publish(sessionKey, "session.message", { sessionKey, text: p.text });
 
-    // ===== 练习点（你自己落地）=====
-    // 现在是「全局广播」。改成「只投递到指定 channel」：
-    //   1. 新建一个 ChannelRegistry，按 sessionKey 分组保存订阅者；
-    //   2. 这里改为 bus 按 sessionKey 定向 publish；
-    //   3. client.ts 可开两个连接，验证只有同 sessionKey 的才收到。
     return { delivered: true, sessionKey };
   });
 }

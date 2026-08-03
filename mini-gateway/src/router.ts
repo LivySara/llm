@@ -7,7 +7,8 @@ import type { Scope, RpcError } from "./protocol";
 
 export interface MethodContext {
   scopes: Scope[];
-  emit(event: string, payload: unknown): void;
+  // 定向发布事件到指定 sessionKey 的 channel
+  emit(channel: string, event: string, payload: unknown): void;
 }
 
 export type MethodHandler = (ctx: MethodContext, params: unknown) => unknown | Promise<unknown>;
