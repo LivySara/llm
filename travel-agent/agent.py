@@ -15,12 +15,13 @@
 import asyncio
 import os
 import sys
+from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import OpenAI
 
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, SERVER_PATH
+from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, SERVER_PATHS
 from mcp_client import call_mcp_tool, to_openai_functions
 from memory import Memory
 from planner import make_plan, review_plan
@@ -44,8 +45,11 @@ def _print_plan(plan):
         print(f"  {i}. {step}")
 
 
-async def react(client, session, functions, memory):
-    """ReAct 主循环：感知 -> 规划 -> 行动 -> 再感知。"""
+async def react(client, tool_session_map, functions, memory):
+    """ReAct 主循环：感知 -> 规划 -> 行动 -> 再感知。
+
+    tool_session_map: 工具名 -> 对应 MCP session，用于把工具调用路由到正确的 server。
+    """
     for turn in range(1, MAX_TOOL_TURNS + 1):
         print(f"\n--- 第 {turn} 轮 ---")
 
@@ -75,8 +79,8 @@ async def react(client, session, functions, memory):
             raw_args = tc.function.arguments
             print(f"  [行动] 执行 {name}({raw_args})")
 
-            # ③ 行动：真的去执行工具，拿到结果
-            result = await call_mcp_tool(session, name, raw_args)
+            # ③ 行动：按工具名路由到对应的 MCP server，真的去执行工具
+            result = await call_mcp_tool(tool_session_map[name], name, raw_args)
             print(f"  [观察] {result}")
 
             # ④ 再感知：把结果塞回记忆，下一轮 LLM 就能看到
@@ -95,71 +99,83 @@ async def main():
     else:
         memory = Memory(SYSTEM_PROMPT)
 
-    # 关键：用 sys.executable 启动 server 子进程，保证和当前 agent 用同一个解释器/环境，
-    # 避免 venv 里 command="python" 解析到别的 python 导致 server 因缺 mcp 而崩溃。
-    params = StdioServerParameters(
-        command=sys.executable,
-        args=[SERVER_PATH],
-        env=os.environ.copy(),
-    )
+    # 连接多个 MCP server（Phase 3）：用 AsyncExitStack 统一管理它们的生命周期。
+    # 每个 server 以独立子进程（stdio）启动，合并所有工具到一个 functions 列表，
+    # 并记录「工具名 -> session」映射，供 react 路由。
+    stack = AsyncExitStack()
+    sessions = []
+    for path in SERVER_PATHS:
+        # 关键：用 sys.executable 启动 server 子进程，保证和当前 agent 用同一个解释器/环境，
+        # 避免 venv 里 command="python" 解析到别的 python 导致 server 因缺 mcp 而崩溃。
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=[path],
+            env=os.environ.copy(),
+        )
+        # errlog 必须是文件对象（mcp 会调 .fileno()），用 sys.stderr 即可。
+        read, write = await stack.enter_async_context(stdio_client(params, errlog=sys.stderr))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        sessions.append(session)
 
-    # errlog 必须是文件对象（mcp 会调 .fileno()），不能传 lambda/print 函数。
-    # 用 sys.stderr 即可，server 子进程的报错会直接打到当前终端。
-    async with stdio_client(params, errlog=sys.stderr) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            tool_list = await session.list_tools()
-            functions = to_openai_functions(tool_list.tools)
+    functions = []
+    tool_session_map = {}
+    for s in sessions:
+        tool_list = await s.list_tools()
+        for t in tool_list.tools:
+            functions.append(to_openai_functions([t])[0])
+            tool_session_map[t.name] = s
 
-            print("=" * 50)
-            print("北京环球影城旅行规划 Agent（Phase 2）")
-            print("可用工具：", [t.name for t in tool_list.tools])
-            print("命令：/new 清空会话 | /plan 查看规划 | exit 退出")
-            print("=" * 50)
-            if memory.plan:
+    async with stack:
+        print("=" * 50)
+        print("北京环球影城旅行规划 Agent（Phase 3 · 多 MCP server）")
+        print(f"已连接 {len(sessions)} 个 MCP server，可用工具：", [t["function"]["name"] for t in functions])
+        print("命令：/new 清空会话 | /plan 查看规划 | exit 退出")
+        print("=" * 50)
+        if memory.plan:
+            _print_plan(memory.plan)
+
+        while True:
+            try:
+                q = input("\n你：").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if q.lower() in ("exit", "quit", "q", "退出"):
+                break
+            if q.lower() == "/new":
+                memory = Memory(SYSTEM_PROMPT)
+                print("[记忆] 已清空，开始新会话。")
+                continue
+            if q.lower() == "/plan":
                 _print_plan(memory.plan)
+                continue
+            if not q:
+                continue
 
-            while True:
-                try:
-                    q = input("\n你：").strip()
-                except (EOFError, KeyboardInterrupt):
-                    break
-                if q.lower() in ("exit", "quit", "q", "退出"):
-                    break
-                if q.lower() == "/new":
-                    memory = Memory(SYSTEM_PROMPT)
-                    print("[记忆] 已清空，开始新会话。")
-                    continue
-                if q.lower() == "/plan":
-                    _print_plan(memory.plan)
-                    continue
-                if not q:
-                    continue
+            memory.add("user", q)
 
-                memory.add("user", q)
+            # ① 规划：先把需求拆成步骤清单（Plan-and-Execute 的 Plan 阶段）
+            steps = make_plan(client, q, functions)
+            if steps:
+                memory.set_plan(steps)
+                print("\n📋 规划：")
+                for i, s in enumerate(steps, 1):
+                    print(f"  {i}. {s}")
 
-                # ① 规划：先把需求拆成步骤清单（Plan-and-Execute 的 Plan 阶段）
-                steps = make_plan(client, q, functions)
-                if steps:
-                    memory.set_plan(steps)
-                    print("\n📋 规划：")
-                    for i, s in enumerate(steps, 1):
-                        print(f"  {i}. {s}")
+            # ② 执行：进入 ReAct 循环完成规划（工具按名路由到对应 server）
+            await react(client, tool_session_map, functions, memory)
 
-                # ② 执行：进入 ReAct 循环完成规划
-                await react(client, session, functions, memory)
+            # ③ 自检：规划完成度（Plan-and-Execute 的 Review 阶段）
+            if memory.plan:
+                review = review_plan(client, memory.plan, memory)
+                print("\n✅ 已完成：", review["completed"] or "无")
+                print("⏳ 未完成：", review["remaining"] or "无")
+                if review["all_done"]:
+                    print("🎉 规划已全部完成。")
 
-                # ③ 自检：规划完成度（Plan-and-Execute 的 Review 阶段）
-                if memory.plan:
-                    review = review_plan(client, memory.plan, memory)
-                    print("\n✅ 已完成：", review["completed"] or "无")
-                    print("⏳ 未完成：", review["remaining"] or "无")
-                    if review["all_done"]:
-                        print("🎉 规划已全部完成。")
-
-                # ④ 持久化：把对话与规划存盘，下次可恢复
-                memory.save(MEMORY_FILE)
-                print(f"[记忆] 已保存到 {MEMORY_FILE}")
+            # ④ 持久化：把对话与规划存盘，下次可恢复
+            memory.save(MEMORY_FILE)
+            print(f"[记忆] 已保存到 {MEMORY_FILE}")
 
     print("\n再见！")
 
