@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>抽奖九宫格 Demo（无 rotate · 后端指定落点）</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-family: system-ui, "PingFang SC", sans-serif;
+    background: #1b1d2a;
+    color: #fff;
+  }
+
+  /* ===== 正方形九宫格：容器 aspect-ratio:1，3×3 均分 → 9 格天然正方 ===== */
+  .grid {
+    position: relative;            /* 让中心指针可绝对定位 */
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 10px;
+    width: min(90vw, 360px);
+    aspect-ratio: 1 / 1;            /* 容器正方 = 每格正方 */
+  }
+
+  .cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border-radius: 12px;
+    background: #2a2d40;
+    border: 2px solid transparent;
+    font-size: 14px;
+    padding: 4px;
+    /* 关键：transition 加在基础类 → 加/去 active 都平滑 */
+    transition: transform .18s ease, box-shadow .18s ease,
+                background-color .18s ease, border-color .18s ease;
+  }
+
+  /* 高亮态：放大 + 发光 + 变色（纯样式，无 rotate） */
+  .cell.active {
+    transform: scale(1.12);
+    background: #3a3f63;
+    border-color: #ffd54a;
+    box-shadow: 0 0 18px 4px rgba(255, 213, 74, .75);
+    z-index: 2;
+  }
+
+  /* 中奖落定时额外爆发动画 */
+  .cell.landing {
+    animation: pop .45s ease;
+  }
+  @keyframes pop {
+    0%   { transform: scale(1.12); }
+    50%  { transform: scale(1.28); box-shadow: 0 0 26px 8px rgba(255,213,74,1); }
+    100% { transform: scale(1.12); }
+  }
+
+  /* 中心抽奖按钮 */
+  .center {
+    background: linear-gradient(135deg, #ff7a45, #ff4d6d);
+    color: #fff;
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    border: none;
+    user-select: none;
+  }
+  .center:disabled { opacity: .55; cursor: not-allowed; }
+
+  /* 中心指针：三角箭头，默认朝上；用 rotate 指向当前高亮格 */
+  .pointer {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 0; height: 0;
+    /* 三角尖朝上 */
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    border-bottom: 22px solid #fff;
+    transform: translate(-50%, -60%) rotate(0deg);
+    transform-origin: 50% 60%;
+    transition: transform .18s ease;   /* 跟随高亮平滑转向 */
+    pointer-events: none;
+    z-index: 3;
+    filter: drop-shadow(0 0 4px rgba(0,0,0,.4));
+  }
+
+  .status { font-size: 14px; color: #9aa0b5; min-height: 20px; }
+
+  /* 中奖弹窗 */
+  .modal-mask {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55);
+    display: none;
+    align-items: center; justify-content: center;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff; color: #222;
+    padding: 28px 36px; border-radius: 16px;
+    text-align: center;
+  }
+  .modal button {
+    margin-top: 16px; padding: 8px 22px;
+    border: none; border-radius: 8px;
+    background: #ff4d6d; color: #fff; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <h3>九宫格抽奖（后端指定中奖位）</h3>
+
+  <div class="grid" id="grid">
+    <!-- 8 个奖品格 + 1 个中心按钮，按 3×3 视觉顺序排 -->
+    <div class="cell" data-i="0">奖品A</div>
+    <div class="cell" data-i="1">奖品B</div>
+    <div class="cell" data-i="2">奖品C</div>
+    <div class="cell" data-i="3">奖品D</div>
+    <button class="cell center" id="startBtn">抽奖</button>
+    <div class="cell" data-i="5">奖品E</div>
+    <div class="cell" data-i="6">奖品F</div>
+    <div class="cell" data-i="7">奖品G</div>
+    <div class="cell" data-i="8">奖品H</div>
+
+    <!-- 中心指针：绝对定位盖在中心按钮上，只旋转自己（非容器） -->
+    <div class="pointer" id="pointer"></div>
+  </div>
+
+  <div class="status" id="status">点击「抽奖」开始</div>
+
+  <div class="modal-mask" id="modalMask">
+    <div class="modal">
+      <h2 id="prizeText">🎉 恭喜中奖</h2>
+      <button id="closeBtn">收下</button>
+    </div>
+  </div>
+
+<script>
+  // ===== 1. 模拟后端：返回奖品数组 + 最终中奖索引 target =====
+  // 真实场景：fetch('/api/lottery') 拿到 { prizes, target }
+  function mockBackend() {
+    const prizes = ['奖品A','奖品B','奖品C','奖品D','奖品E','奖品F','奖品G','奖品H'];
+    const target = Math.floor(Math.random() * 8); // 后端随机/按概率决定
+    return { prizes, target };
+  }
+
+  // 顺时针遍历路径（视觉下标，中心 4 不参与）：左上→上→右上→右→右下→下→左下→左
+  const PATH = [0, 1, 2, 5, 8, 7, 6, 3];
+  const cells = {};
+  document.querySelectorAll('.cell[data-i]').forEach(el => cells[el.dataset.i] = el);
+
+  const startBtn  = document.getElementById('startBtn');
+  const statusEl  = document.getElementById('status');
+  const modalMask = document.getElementById('modalMask');
+  const prizeText = document.getElementById('prizeText');
+  const pointer   = document.getElementById('pointer');
+
+  let running = false;
+  let lastActive = null;
+
+  // 指针指向当前高亮格：直接量"九宫格中心 → 该格中心"的真实连线角度，
+  // 不依赖硬编码方位表，任何屏幕尺寸/间隙/格子数都零误差。
+  function pointTo(cellIdx) {
+    const grid = pointer.parentElement.getBoundingClientRect();
+    const cell = cells[cellIdx].getBoundingClientRect();
+    const cx = grid.left + grid.width  / 2;
+    const cy = grid.top  + grid.height / 2;
+    const tx = cell.left + cell.width  / 2;
+    const ty = cell.top  + cell.height / 2;
+    const deg = Math.atan2(ty - cy, tx - cx) * 180 / Math.PI + 90;
+    pointer.style.transform = `translate(-50%, -60%) rotate(${deg}deg)`;
+  }
+
+  // 变速：前期快、最后 2 圈逐步慢
+  function getInterval(step, total) {
+    const remaining = total - step;
+    if (remaining > 16) return 60;                 // 快速轮播
+    const t = (16 - remaining) / 16;               // 0→1
+    return 80 + t * 320;                           // 80ms → 400ms 减速
+  }
+
+  function clearActive() {
+    if (lastActive) lastActive.classList.remove('active');
+    lastActive = null;
+  }
+
+  function startLottery() {
+    if (running) return;
+    running = true;
+    startBtn.disabled = true;
+    statusEl.textContent = '请求后端中...';
+
+    const { prizes, target } = mockBackend(); // 替换为真实接口
+    statusEl.textContent = '抽奖中...';
+
+    const minLoops = 3;                         // 至少转 3 圈
+    const targetPos = PATH.indexOf(target);
+    // 总步数 = 完整圈数*8 + 从起点到 target 的剩余格数
+    const total = minLoops * 8 + ((targetPos - 0 + 8) % 8);
+
+    let step = 0;
+    let pos = -1; // 当前在 PATH 中的位置
+
+    function tick() {
+      // 取消上一格高亮
+      clearActive();
+      // 前进一格
+      pos = (pos + 1) % PATH.length;
+      const cellIdx = PATH[pos];
+      const cell = cells[cellIdx];
+      cell.classList.add('active');
+      lastActive = cell;
+      pointTo(cellIdx);   // 指针同步指向当前高亮格
+
+      step++;
+      if (step >= total) {
+        // 落定：保持高亮 + 爆发动画 + 中心高亮 + 弹窗
+        cell.classList.add('landing');
+        document.querySelector('.center').classList.add('active');
+        // setTimeout(() => {
+        //   statusEl.textContent = '🎉 中奖：' + prizes[target];
+        //   prizeText.textContent = '🎉 恭喜获得：' + prizes[target];
+        //   modalMask.classList.add('show');
+        //   running = false;
+        //   startBtn.disabled = false;
+        // }, 450);
+        return;
+      }
+      setTimeout(tick, getInterval(step, total));
+    }
+    tick();
+  }
+
+  startBtn.addEventListener('click', startLottery);
+  document.getElementById('closeBtn').addEventListener('click', () => {
+    modalMask.classList.remove('show');
+    clearActive();
+    document.querySelector('.center').classList.remove('active');
+    statusEl.textContent = '点击「抽奖」开始';
+  });
+</script>
+</body>
+</html>
