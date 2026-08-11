@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+
+# 本地学习用的修改记录，不提交到仓库
+RECORD.md
