@@ -1,0 +1,24 @@
+{
+  "name": "travel-agent",
+  "version": "1.0.0",
+  "description": "北京环球影城旅行规划 Agent（Node.js + TypeScript 重写）：ReAct 循环 + DeepSeek + 多 MCP server + 分层规划 + 持久记忆",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5",
+    "openai": "^4.56.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
