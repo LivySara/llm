@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+memory_store.json
+.env
+CHANGELOG.md
