@@ -53,3 +53,14 @@ TypeScript 无法识别 Node.js 内置模块 `node:readline` 的类型声明。
    ```json
    "start": "tsx src/index.ts"
    ```
+
+---
+
+## 问题
+
+`为什么 messages 必须先 push assistant 的 tool_call，再 push tool result？`
+
+## 原因
+
+个人理解：`第一次调用LLM获取信息，给下一次调用LLM，LLM本身无法获取到上一次它干了什么`
+官方理解：`第一次调用 LLM 时，LLM 产生了 Tool Call；Node.js 执行 Tool。下一次调用 LLM 时，LLM 不会自动拥有上一次调用的上下文，所以 Agent 必须把“上一次 LLM 的 Tool Call + Tool 执行结果”一起放进 messages，让下一次 LLM 知道发生过什么`
