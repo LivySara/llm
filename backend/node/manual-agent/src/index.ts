@@ -36,6 +36,7 @@ const tools: ChatCompletionTool[] = [{
         }
     }
 }]
+type ToolName = keyof typeof funTools
 
 async function main() {
     try {
@@ -48,25 +49,38 @@ async function main() {
                 role: 'user',
                 content: msg
             })
-            const resCompletion = await openaiInst.chat.completions.create({
-                messages,
-                tools,
-                model: "deepseek-v4-pro"
-            })
-            const completionMsgs = resCompletion.choices[0]?.message
-            const toolCalls = completionMsgs?.tool_calls ?? []
-            for (const toolItem of toolCalls) {
-                const toolName = toolItem.function.name
-                const args = JSON.parse(toolItem.function.arguments)
-                const tool = funTools[toolName]
-                const result = tool(args.expression)
-                messages.push({
-                    role: "tool",
-                    tool_call_id: toolItem.id,
-                    content: result
+            while (true) {
+                const resCompletion = await openaiInst.chat.completions.create({
+                    messages,
+                    tools,
+                    model: "deepseek-v4-pro"
                 })
+                const completionMsgs = resCompletion.choices[0]?.message
+                if (!completionMsgs) {
+                    throw new Error('LLM 没有返回 message')
+                }
+                messages.push(completionMsgs)
+                const toolCalls = completionMsgs?.tool_calls ?? []
+                console.log('toolCalls：', toolCalls)
+                if (!toolCalls.length) {
+                    console.log('\n模型：', completionMsgs?.content)
+                    break
+                }
+                for (const toolItem of toolCalls) {
+                    if(toolItem.type !== 'function') {
+                        continue
+                    }
+                    const toolName = toolItem.function.name as ToolName
+                    const args = JSON.parse(toolItem.function.arguments)
+                    const tool = funTools[toolName]
+                    const result = tool(args.expression)
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: toolItem.id,
+                        content: String(result)
+                    })
+                }
             }
-            console.log('\n模型：', completionMsgs?.content)
         }
     } catch (error) {
         
