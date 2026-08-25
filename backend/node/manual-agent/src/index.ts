@@ -1,8 +1,8 @@
 import { OpenaiClient } from './llm/index.js'
 import { createInterface } from 'node:readline'
 import { stdin as input, stdout as output } from "node:process";
-import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
-import { funTools } from './tools/index.js'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { getToolSchemas, getTool } from './tools/index.js'
 
 const openaiInst = OpenaiClient.createLlmInst()
 
@@ -19,24 +19,6 @@ function askQuestion(): Promise<string> {
     })
 }
 
-const tools: ChatCompletionTool[] = [{
-    type: 'function',
-    function: {
-        description: '计算器',
-        name: 'calculator',
-        parameters: {
-            type: 'object',
-            properties: {
-                expression: {
-                    type: 'string',
-                    description: '数学公式，例如234*23'
-                }
-            },
-            required: ['expression']
-        }
-    }
-}]
-type ToolName = keyof typeof funTools
 
 async function main() {
     try {
@@ -52,7 +34,7 @@ async function main() {
             while (true) {
                 const resCompletion = await openaiInst.chat.completions.create({
                     messages,
-                    tools,
+                    tools: getToolSchemas(),
                     model: "deepseek-v4-pro"
                 })
                 const completionMsgs = resCompletion.choices[0]?.message
@@ -61,7 +43,6 @@ async function main() {
                 }
                 messages.push(completionMsgs)
                 const toolCalls = completionMsgs?.tool_calls ?? []
-                console.log('toolCalls：', toolCalls)
                 if (!toolCalls.length) {
                     console.log('\n模型：', completionMsgs?.content)
                     break
@@ -70,10 +51,10 @@ async function main() {
                     if(toolItem.type !== 'function') {
                         continue
                     }
-                    const toolName = toolItem.function.name as ToolName
                     const args = JSON.parse(toolItem.function.arguments)
-                    const tool = funTools[toolName]
-                    const result = tool(args.expression)
+                    const tool = getTool(toolItem.function.name)
+                    // 未考虑异步函数
+                    const result = tool?.execute(args)
                     messages.push({
                         role: "tool",
                         tool_call_id: toolItem.id,
