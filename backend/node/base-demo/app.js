@@ -1,11 +1,14 @@
 import http from 'node:http'
 // import { URL } from 'node:url';
+import { db } from './data-base/config.js'
 
 // 启动http服务器
 // createServer里回调函数，用来定义：收到HTTP请求后要干什么
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
     if(req.method === 'GET') {
-        if( req.url === '/template/list') {
+        const url = new URL(req.url, 'http://localhost')
+        const pathName = url.pathname
+        if(pathName === '/template/list') {
             const data = {
                 code: 0,
                 message: 'success',
@@ -24,8 +27,7 @@ const server = http.createServer((req, res) => {
             res.end(JSON.stringify(data))
             return
         }
-        if(req.url === '/template/detail') {
-            const url = new URL(req.url, 'http://localhost')
+        if(pathName === '/template/detail') {
             const id = url.searchParams.get('id')
             const data = {
                 code: 0,
@@ -39,6 +41,13 @@ const server = http.createServer((req, res) => {
             }
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(data))
+            return
+        }
+        if(pathName === '/city/detail') {
+            const id = url.searchParams.get('id')
+            const [rows] = await db.query('SELECT * FROM city WHERE ID = ?', [id])
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(rows))
             return
         }
     }
