@@ -1,0 +1,1092 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]:
+      - link [ref=e4] [cursor=pointer]:
+        - /url: /
+        - img "ForceInjection logo" [ref=e5]
+        - text: AI Fundamentals
+      - textbox "搜索文档" [ref=e7]:
+        - /placeholder: 搜索文档…
+      - button "知识模块" [ref=e8] [cursor=pointer]:
+        - text: 知识模块
+        - generic [aria-hidden] [ref=e9]: ▾
+      - link "View source on GitHub" [ref=e10] [cursor=pointer]:
+        - /url: https://github.com/ForceInjection/AI-fundamentals
+  - main "Content" [ref=e13]:
+    - article [ref=e15]:
+      - generic [ref=e16]:
+        - heading "Transformer 架构详解——从自注意力到完整解码器" [level=1] [ref=e17]
+        - paragraph [ref=e18]:
+          - text: 2017 年之前，处理序列数据的主流架构是 RNN 和 LSTM。它们在机器翻译、语音识别等任务上统治了近十年，但有一个结构性的硬伤：
+          - strong [ref=e19]: 第 t 个 token 必须等第 t-1 个算完才能开始
+          - text: 。这个串行依赖带来了两个无法绕过的问题——序列越长训练越慢（GPU 的并行能力被浪费），以及跨长距离的信息会随着梯度传播逐步衰减甚至消失。
+        - paragraph [ref=e20]:
+          - text: 同年，Vaswani 等人的《Attention Is All You Need》用
+          - strong [ref=e21]: 自注意力（Self-Attention）
+          - text: 一次性解决了这两个问题：每个 token 直接关注序列中所有其他 token，没有先后顺序，只有相关度权重。这个简单的想法催生了 Transformer 架构，进而演化为今天所有大语言模型（GPT、LLaMA、Qwen、DeepSeek、Claude）的共同基础。
+        - paragraph [ref=e22]: 但切换到全并行架构并非没有代价。去掉串行顺序意味着位置信息丢失——要让模型区分「我打你」和「你打我」，靠权重表是不够的。同时，全注意力在长序列上的计算量是 O(n²)，当上下文从 2K 扩展到 128K 时，这个代价变得不可忽视。
+        - paragraph [ref=e23]:
+          - text: 本文从零拆解 Transformer 的核心组件。阅读目标是：
+          - strong [ref=e24]:
+            - text: 读完能看懂一份
+            - code [ref=e25]: modeling_llama.py
+            - text: 级别的源码
+          - text: ，并理解每个组件解决了什么问题、又带来了什么新问题。
+        - separator [ref=e26]: ◆
+        - heading "❯ 一、问题：RNN 的串行瓶颈" [level=2] [ref=e27]
+        - paragraph [ref=e28]:
+          - text: RNN/LSTM 处理序列的方式是逐步迭代——隐藏状态
+          - generic [ref=e29]:
+            - generic [ref=e31]:
+              - generic [ref=e32]: h
+              - generic [ref=e34]: t
+            - math [ref=e38]:
+              - generic [ref=e39]:
+                - generic [ref=e40]: h
+                - generic [ref=e41]: t
+          - text: 由
+          - generic [ref=e42]:
+            - generic [ref=e44]:
+              - generic [ref=e45]: h
+              - generic [ref=e48]:
+                - generic [ref=e49]: t
+                - generic [ref=e51]: −
+                - generic [ref=e53]: "1"
+            - math [ref=e56]:
+              - generic [ref=e57]:
+                - generic [ref=e58]: h
+                - generic [ref=e59]:
+                  - generic [ref=e60]: t
+                  - generic [ref=e61]: −
+                  - generic [ref=e62]: "1"
+          - text: 和当前输入
+          - generic [ref=e63]:
+            - generic [ref=e65]:
+              - generic [ref=e66]: x
+              - generic [ref=e68]: t
+            - math [ref=e72]:
+              - generic [ref=e73]:
+                - generic [ref=e74]: x
+                - generic [ref=e75]: t
+          - text: 共同决定。
+        - generic [ref=e78]:
+          - text: ● ● ●
+          - code [ref=e79]: "RNN: token1 → token2 → token3 → ... → tokenN （串行，O(n) 步）"
+        - paragraph [ref=e80]: 这个设计有两个致命缺陷：
+        - list [ref=e81]:
+          - listitem [ref=e82]:
+            - strong [ref=e83]: 无法并行训练
+            - text: ：计算 token_N 必须先算完前面 N-1 步。序列越长，一轮前向/反向传播的时间线性增长。
+          - listitem [ref=e84]:
+            - strong [ref=e85]: 长距离依赖衰减
+            - text: ：梯度和信息在反向传播时穿过几十个时间步后，会因连乘效应指数级衰减（梯度消失）或放大（梯度爆炸）。
+        - paragraph [ref=e86]: 这两个问题在 2014-2016 年间催生了大量的变体方案——LSTM 的门控机制、注意力作为 RNN 的辅助模块——但本质上仍在串行框架内打补丁。
+        - heading "❯ 二、方案：自注意力——让每个 token 同时看见所有 token" [level=2] [ref=e87]
+        - paragraph [ref=e88]:
+          - text: Transformer 的答案是放弃串行假设：
+          - strong [ref=e89]: 不再通过隐藏状态逐步传递信息，而是让每个 token 直接查询序列中的每个 token。
+        - generic [ref=e92]:
+          - text: ● ● ●
+          - code [ref=e93]: "Transformer: 每个 token ⇄ 所有 token（并行，O(1) 步）"
+        - paragraph [ref=e94]: 这个「直接查询」机制就是自注意力。
+        - heading "## 2.1 Q / K / V：信息检索的类比" [level=3] [ref=e95]
+        - paragraph [ref=e96]: 自注意力可以用一个信息检索的类比来理解：
+        - generic [ref=e99]:
+          - text: ● ● ●
+          - code [ref=e100]: Q (Query) = x · W_Q —— "我在找什么？" K (Key) = x · W_K —— "我能提供什么？" V (Value) = x · W_V —— "如果被选中，我给出什么信息？"
+        - paragraph [ref=e101]:
+          - text: 每个 token 的 Embedding 向量通过三个不同的线性变换，分别投影为查询向量 Q、键向量 K、值向量 V。
+          - generic [ref=e102]:
+            - generic [ref=e104]:
+              - generic [ref=e105]: W
+              - generic [ref=e107]: Q
+            - math [ref=e111]:
+              - generic [ref=e112]:
+                - generic [ref=e113]: W
+                - generic [ref=e114]: Q
+          - text: 、
+          - generic [ref=e115]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: W
+              - generic [ref=e120]: K
+            - math [ref=e124]:
+              - generic [ref=e125]:
+                - generic [ref=e126]: W
+                - generic [ref=e127]: K
+          - text: 、
+          - generic [ref=e128]:
+            - generic [ref=e130]:
+              - generic [ref=e131]: W
+              - generic [ref=e133]: V
+            - math [ref=e137]:
+              - generic [ref=e138]:
+                - generic [ref=e139]: W
+                - generic [ref=e140]: V
+          - text: 是可学习的权重矩阵，维度为
+          - generic [ref=e141]:
+            - generic [aria-hidden] [ref=e142]:
+              - generic [ref=e143]:
+                - generic [ref=e144]: d
+                - generic [ref=e148]:
+                  - generic [ref=e149]: m
+                  - generic [ref=e150]: o
+                  - generic [ref=e151]: d
+                  - generic [ref=e152]: e
+                  - generic [ref=e153]: l
+              - generic [ref=e154]: ×
+              - generic [ref=e156]:
+                - generic [ref=e157]: d
+                - generic [ref=e159]: k
+            - math [ref=e163]:
+              - generic [ref=e164]:
+                - generic [ref=e165]: d
+                - generic [ref=e166]: model
+              - generic [ref=e168]: ×
+              - generic [ref=e169]:
+                - generic [ref=e170]: d
+                - generic [ref=e171]: k
+          - text: （通常
+          - generic [ref=e172]:
+            - generic [aria-hidden] [ref=e173]:
+              - generic [ref=e174]:
+                - generic [ref=e175]: d
+                - generic [ref=e177]: k
+              - generic [ref=e180]: =
+              - generic [ref=e182]:
+                - generic [ref=e183]: d
+                - generic [ref=e187]:
+                  - generic [ref=e188]: m
+                  - generic [ref=e189]: o
+                  - generic [ref=e190]: d
+                  - generic [ref=e191]: e
+                  - generic [ref=e192]: l
+              - generic [ref=e193]: /
+              - generic [ref=e196]:
+                - generic [ref=e197]: "n"
+                - generic [ref=e198]: u
+                - generic [ref=e199]: m
+                - generic [ref=e200]: _
+                - generic [ref=e201]: h
+                - generic [ref=e202]: e
+                - generic [ref=e203]: a
+                - generic [ref=e204]: d
+                - generic [ref=e205]: s
+            - math [ref=e207]:
+              - generic [ref=e208]:
+                - generic [ref=e209]: d
+                - generic [ref=e210]: k
+              - generic [ref=e211]: =
+              - generic [ref=e212]:
+                - generic [ref=e213]: d
+                - generic [ref=e214]: model
+              - generic [ref=e216]: /
+              - generic [ref=e218]: num_heads
+          - text: ）。
+        - paragraph [ref=e219]: 这个三元组设计来自信息检索：Query 代表用户的搜索意图，Key 代表文档的索引标签，Value 代表文档的实际内容。把每个 token 既当作「提问者」又当作「被检索的文档」，就得到了自注意力。
+        - heading "## 2.2 注意力分数：四步计算" [level=3] [ref=e220]
+        - generic [ref=e221]:
+          - generic [aria-hidden] [ref=e222]:
+            - generic [ref=e223]:
+              - generic [ref=e224]: A
+              - generic [ref=e225]: t
+              - generic [ref=e226]: t
+              - generic [ref=e227]: e
+              - generic [ref=e228]: "n"
+              - generic [ref=e229]: t
+              - generic [ref=e230]: i
+              - generic [ref=e231]: o
+              - generic [ref=e232]: "n"
+            - generic [ref=e233]: (
+            - generic [ref=e235]: Q
+            - generic [ref=e237]: ","
+            - generic [ref=e239]: K
+            - generic [ref=e241]: ","
+            - generic [ref=e243]: V
+            - generic [ref=e245]: )
+            - generic [ref=e247]: =
+            - generic [ref=e249]:
+              - generic [ref=e250]: s
+              - generic [ref=e251]: o
+              - generic [ref=e252]: f
+              - generic [ref=e253]: t
+              - generic [ref=e254]: m
+              - generic [ref=e255]: a
+              - generic [ref=e256]: x
+            - generic [ref=e257]:
+              - generic [ref=e258]: (
+              - generic [ref=e261]:
+                - generic [ref=e263]:
+                  - generic [ref=e264]: Q
+                  - generic [ref=e266]: ⋅
+                  - generic [ref=e268]:
+                    - generic [ref=e269]: K
+                    - generic [ref=e271]: ⊤
+                - generic [ref=e280]:
+                  - generic [ref=e281]: √
+                  - generic [ref=e285]:
+                    - generic [ref=e286]: d
+                    - generic [ref=e288]: k
+              - generic [ref=e291]: )
+            - generic [ref=e293]: ⋅
+            - generic [ref=e295]: V
+          - math [ref=e298]:
+            - generic [ref=e299]: Attention
+            - generic [ref=e300]: (
+            - generic [ref=e301]: Q
+            - generic [ref=e302]: ","
+            - generic [ref=e303]: K
+            - generic [ref=e304]: ","
+            - generic [ref=e305]: V
+            - generic [ref=e306]: )
+            - generic [ref=e307]: =
+            - generic [ref=e308]: softmax
+            - generic [ref=e309]:
+              - generic [ref=e310]: (
+              - generic [ref=e311]:
+                - generic [ref=e312]:
+                  - generic [ref=e313]: Q
+                  - generic [ref=e314]: ⋅
+                  - generic [ref=e315]:
+                    - generic [ref=e316]: K
+                    - generic [ref=e317]: ⊤
+                - generic [ref=e319]:
+                  - generic [ref=e320]: d
+                  - generic [ref=e321]: k
+              - generic [ref=e322]: )
+            - generic [ref=e323]: ⋅
+            - generic [ref=e324]: V
+        - paragraph [ref=e325]: 步骤拆解：
+        - list [ref=e326]:
+          - listitem [ref=e327]:
+            - generic [ref=e328]:
+              - generic [aria-hidden] [ref=e329]:
+                - generic [ref=e330]: Q
+                - generic [ref=e332]: ⋅
+                - generic [ref=e334]:
+                  - generic [ref=e335]: K
+                  - generic [ref=e337]: ⊤
+              - math [ref=e341]:
+                - generic [ref=e342]: Q
+                - generic [ref=e343]: ⋅
+                - generic [ref=e344]:
+                  - generic [ref=e345]: K
+                  - generic [ref=e346]: ⊤
+            - text: → 得分矩阵 S（token i 对 token j 的原始相关度）
+          - listitem [ref=e347]:
+            - generic [ref=e348]:
+              - generic [aria-hidden] [ref=e349]:
+                - generic [ref=e350]: S
+                - generic [ref=e352]: /
+                - generic [ref=e356]:
+                  - generic [ref=e357]: √
+                  - generic [ref=e361]:
+                    - generic [ref=e362]: d
+                    - generic [ref=e364]: k
+              - math [ref=e368]:
+                - generic [ref=e369]: S
+                - generic [ref=e370]: /
+                - generic [ref=e373]:
+                  - generic [ref=e374]: d
+                  - generic [ref=e375]: k
+            - text: → 缩放，防止大点积值导致 softmax 梯度消失
+          - listitem [ref=e376]:
+            - generic [ref=e377]:
+              - generic [ref=e379]:
+                - generic [ref=e380]: s
+                - generic [ref=e381]: o
+                - generic [ref=e382]: f
+                - generic [ref=e383]: t
+                - generic [ref=e384]: m
+                - generic [ref=e385]: a
+                - generic [ref=e386]: x
+              - math [ref=e388]:
+                - generic [ref=e389]: softmax
+            - text: → 归一化为概率分布（每个 token 对所有 token 的注意力权重之和 = 1）
+          - listitem [ref=e390]:
+            - generic [ref=e391]:
+              - generic [aria-hidden] [ref=e392]:
+                - generic [ref=e393]: ×
+                - generic [ref=e395]: V
+              - math [ref=e398]:
+                - generic [ref=e399]: ×
+                - generic [ref=e400]: V
+            - text: → 加权求和，得到每个 token 的「上下文感知」表示
+        - heading "## 2.3 为什么要除以 √d_k？" [level=3] [ref=e401]
+        - paragraph [ref=e402]:
+          - text: 自注意力有一个容易被忽视的数学细节。当
+          - generic [ref=e403]:
+            - generic [ref=e405]:
+              - generic [ref=e406]: d
+              - generic [ref=e408]: k
+            - math [ref=e412]:
+              - generic [ref=e413]:
+                - generic [ref=e414]: d
+                - generic [ref=e415]: k
+          - text: 较大时，
+          - generic [ref=e416]:
+            - generic [aria-hidden] [ref=e417]:
+              - generic [ref=e418]: Q
+              - generic [ref=e420]: ⋅
+              - generic [ref=e422]: K
+            - math [ref=e425]:
+              - generic [ref=e426]: Q
+              - generic [ref=e427]: ⋅
+              - generic [ref=e428]: K
+          - text: 的点积结果的方差会增大（约等于
+          - generic [ref=e429]:
+            - generic [ref=e431]:
+              - generic [ref=e432]: d
+              - generic [ref=e434]: k
+            - math [ref=e438]:
+              - generic [ref=e439]:
+                - generic [ref=e440]: d
+                - generic [ref=e441]: k
+          - text: ）。大的输入值让 softmax 进入饱和区——输出几乎变成 one-hot 向量，梯度趋近于零。除以
+          - generic [ref=e442]:
+            - generic [ref=e445]:
+              - generic [ref=e446]: √
+              - generic [ref=e450]:
+                - generic [ref=e451]: d
+                - generic [ref=e453]: k
+            - math [ref=e457]:
+              - generic [ref=e459]:
+                - generic [ref=e460]: d
+                - generic [ref=e461]: k
+          - text: 将方差压回 1，让梯度在训练中保持健康。
+        - generic [ref=e464]:
+          - text: ● ● ●
+          - code [ref=e465]: "# PyTorch 实现骨架 def self_attention(Q, K, V, mask=None): d_k = Q.size(-1) scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k) if mask is not None: scores = scores.masked_fill(mask == 0, -1e9) attn_weights = F.softmax(scores, dim=-1) return torch.matmul(attn_weights, V)"
+        - paragraph [ref=e466]: 这个简单的缩放操作解决了梯度健康问题，但它不解决自注意力的另一个根本限制——一组 Q/K/V 只能表达一种「相关性的定义」。
+        - separator [ref=e467]: ◆
+        - heading "❯ 三、方案延伸：多头注意力——从单视角到多视角" [level=2] [ref=e468]
+        - paragraph [ref=e469]: 单组 Q/K/V 只能捕捉一种关系模式。比如在处理「苹果很好吃」时，一组注意力可能关注「苹果→好」的语义关联，但它无法同时关注「苹果→名词主语」的语法角色和「苹果→吃」的动作搭配。
+        - paragraph [ref=e470]:
+          - text: 多头注意力（Multi-Head Attention）的解法是
+          - strong [ref=e471]: 并行运行多个独立的注意力头
+          - text: ，每个头有自己的 W_Q、W_K、W_V，在各自的低维子空间中计算：
+        - generic [ref=e472]:
+          - generic [ref=e476]:
+            - generic [ref=e477]:
+              - generic [ref=e478]:
+                - generic [ref=e479]:
+                  - generic [ref=e480]: M
+                  - generic [ref=e481]: u
+                  - generic [ref=e482]: l
+                  - generic [ref=e483]: t
+                  - generic [ref=e484]: i
+                  - generic [ref=e485]: H
+                  - generic [ref=e486]: e
+                  - generic [ref=e487]: a
+                  - generic [ref=e488]: d
+                - generic [ref=e489]: (
+                - generic [ref=e491]: Q
+                - generic [ref=e493]: ","
+                - generic [ref=e495]: K
+                - generic [ref=e497]: ","
+                - generic [ref=e499]: V
+                - generic [ref=e501]: )
+              - generic [ref=e503]:
+                - generic [ref=e504]: =
+                - generic [ref=e506]:
+                  - generic [ref=e507]: C
+                  - generic [ref=e508]: o
+                  - generic [ref=e509]: "n"
+                  - generic [ref=e510]: c
+                  - generic [ref=e511]: a
+                  - generic [ref=e512]: t
+                - generic [ref=e513]: (
+                - generic [ref=e515]:
+                  - generic [ref=e516]:
+                    - generic [ref=e517]: h
+                    - generic [ref=e518]: e
+                    - generic [ref=e519]: a
+                    - generic [ref=e520]: d
+                  - generic [ref=e521]: "1"
+                - generic [ref=e524]: ","
+                - generic [ref=e526]: …
+                - generic [ref=e528]: ","
+                - generic [ref=e530]:
+                  - generic [ref=e531]:
+                    - generic [ref=e532]: h
+                    - generic [ref=e533]: e
+                    - generic [ref=e534]: a
+                    - generic [ref=e535]: d
+                  - generic [ref=e536]: h
+                - generic [ref=e539]: )
+                - generic [ref=e541]: ⋅
+                - generic [ref=e543]:
+                  - generic [ref=e544]: W
+                  - generic [ref=e546]: O
+            - generic [ref=e549]:
+              - generic [ref=e551]:
+                - generic [ref=e552]:
+                  - generic [ref=e553]: h
+                  - generic [ref=e554]: e
+                  - generic [ref=e555]: a
+                  - generic [ref=e556]: d
+                - generic [ref=e557]: i
+              - generic [ref=e560]:
+                - generic [ref=e561]: =
+                - generic [ref=e563]:
+                  - generic [ref=e564]: A
+                  - generic [ref=e565]: t
+                  - generic [ref=e566]: t
+                  - generic [ref=e567]: e
+                  - generic [ref=e568]: "n"
+                  - generic [ref=e569]: t
+                  - generic [ref=e570]: i
+                  - generic [ref=e571]: o
+                  - generic [ref=e572]: "n"
+                - generic [ref=e573]: (
+                - generic [ref=e575]: Q
+                - generic [ref=e577]: ⋅
+                - generic [ref=e579]:
+                  - generic [ref=e580]: W
+                  - generic [ref=e583]:
+                    - generic [ref=e584]: Q
+                    - generic [ref=e586]: i
+                - generic [ref=e588]: ","
+                - generic [ref=e590]: K
+                - generic [ref=e592]: ⋅
+                - generic [ref=e594]:
+                  - generic [ref=e595]: W
+                  - generic [ref=e598]:
+                    - generic [ref=e599]: K
+                    - generic [ref=e601]: i
+                - generic [ref=e603]: ","
+                - generic [ref=e605]: V
+                - generic [ref=e607]: ⋅
+                - generic [ref=e609]:
+                  - generic [ref=e610]: W
+                  - generic [ref=e613]:
+                    - generic [ref=e614]: V
+                    - generic [ref=e616]: i
+                - generic [ref=e618]: )
+          - math [ref=e621]:
+            - generic [ref=e622]:
+              - generic [ref=e623]:
+                - generic [ref=e624]:
+                  - generic [ref=e625]: MultiHead
+                  - generic [ref=e626]: (
+                  - generic [ref=e627]: Q
+                  - generic [ref=e628]: ","
+                  - generic [ref=e629]: K
+                  - generic [ref=e630]: ","
+                  - generic [ref=e631]: V
+                  - generic [ref=e632]: )
+                - generic [ref=e633]:
+                  - generic [ref=e634]: =
+                  - generic [ref=e635]: Concat
+                  - generic [ref=e636]: (
+                  - generic [ref=e637]:
+                    - generic [ref=e638]: head
+                    - generic [ref=e639]: "1"
+                  - generic [ref=e640]: ","
+                  - generic [ref=e641]: …
+                  - generic [ref=e642]: ","
+                  - generic [ref=e643]:
+                    - generic [ref=e644]: head
+                    - generic [ref=e645]: h
+                  - generic [ref=e646]: )
+                  - generic [ref=e647]: ⋅
+                  - generic [ref=e648]:
+                    - generic [ref=e649]: W
+                    - generic [ref=e650]: O
+              - generic [ref=e651]:
+                - generic [ref=e653]:
+                  - generic [ref=e654]: head
+                  - generic [ref=e655]: i
+                - generic [ref=e656]:
+                  - generic [ref=e657]: =
+                  - generic [ref=e658]: Attention
+                  - generic [ref=e659]: (
+                  - generic [ref=e660]: Q
+                  - generic [ref=e661]: ⋅
+                  - generic [ref=e662]:
+                    - generic [ref=e663]: W
+                    - generic [ref=e664]:
+                      - generic [ref=e665]: Q
+                      - generic [ref=e666]: i
+                  - generic [ref=e667]: ","
+                  - generic [ref=e668]: K
+                  - generic [ref=e669]: ⋅
+                  - generic [ref=e670]:
+                    - generic [ref=e671]: W
+                    - generic [ref=e672]:
+                      - generic [ref=e673]: K
+                      - generic [ref=e674]: i
+                  - generic [ref=e675]: ","
+                  - generic [ref=e676]: V
+                  - generic [ref=e677]: ⋅
+                  - generic [ref=e678]:
+                    - generic [ref=e679]: W
+                    - generic [ref=e680]:
+                      - generic [ref=e681]: V
+                      - generic [ref=e682]: i
+                  - generic [ref=e683]: )
+        - list [ref=e684]:
+          - listitem [ref=e685]: 每个 head 的维度为 d_k = d_model / h（如 512 / 8 = 64）
+          - listitem [ref=e686]: 所有 head 的输出拼接后经 W_O 投影回 d_model
+          - listitem [ref=e687]: 总计算量与等效的单头注意力相同（并行度换表达力）
+        - paragraph [ref=e688]:
+          - strong [ref=e689]: 代价
+          - text: ：多头增加了模型的理解能力，但也让注意力的可解释性变得更困难——面对 32 个头、每层一张注意力热力图，人类几乎无法直观理解模型究竟在「关注」什么。此外，多头之间的信息完全独立，直到拼接步骤才交汇——这意味着每个头可能学习到冗余或退化的注意力模式。
+        - separator [ref=e690]: ◆
+        - heading "❯ 四、前馈网络：注意力之后的逐 token 变换" [level=2] [ref=e691]
+        - paragraph [ref=e692]: 自注意力让 token 之间交换信息，但交换完后，每个 token 的表示还需要一次独立的非线性变换。这个任务由前馈网络（FFN）承担：
+        - generic [ref=e693]:
+          - generic [aria-hidden] [ref=e694]:
+            - generic [ref=e695]:
+              - generic [ref=e696]: F
+              - generic [ref=e697]: F
+              - generic [ref=e698]: "N"
+            - generic [ref=e699]: (
+            - generic [ref=e701]: x
+            - generic [ref=e703]: )
+            - generic [ref=e705]: =
+            - generic [ref=e707]:
+              - generic [ref=e708]: W
+              - generic [ref=e710]: "2"
+            - generic [ref=e713]: ⋅
+            - generic [ref=e715]: σ
+            - generic [ref=e717]: (
+            - generic [ref=e719]:
+              - generic [ref=e720]: W
+              - generic [ref=e722]: "1"
+            - generic [ref=e725]: ⋅
+            - generic [ref=e727]: x
+            - generic [ref=e729]: )
+            - generic [ref=e731]:
+              - generic [ref=e732]: （
+              - generic [ref=e733]: 现
+              - generic [ref=e734]: 代
+              - generic [ref=e735]: L
+              - generic [ref=e736]: L
+              - generic [ref=e737]: M
+              - generic [ref=e738]: 通
+              - generic [ref=e739]: 常
+              - generic [ref=e740]: 去
+              - generic [ref=e741]: 掉
+              - generic [ref=e742]: 偏
+              - generic [ref=e743]: 置
+              - generic [ref=e744]: 项
+              - generic [ref=e745]: ）
+          - math [ref=e747]:
+            - generic [ref=e748]: FFN
+            - generic [ref=e749]: (
+            - generic [ref=e750]: x
+            - generic [ref=e751]: )
+            - generic [ref=e752]: =
+            - generic [ref=e753]:
+              - generic [ref=e754]: W
+              - generic [ref=e755]: "2"
+            - generic [ref=e756]: ⋅
+            - generic [ref=e757]: σ
+            - generic [ref=e758]: (
+            - generic [ref=e759]:
+              - generic [ref=e760]: W
+              - generic [ref=e761]: "1"
+            - generic [ref=e762]: ⋅
+            - generic [ref=e763]: x
+            - generic [ref=e764]: )
+            - generic [ref=e765]: （现代 LLM 通常去掉偏置项 ）
+        - list [ref=e766]:
+          - listitem [ref=e767]: 先将 d_model 维投影到 d_ff 维（通常 d_ff = 4 × d_model），再投影回 d_model
+          - listitem [ref=e768]: FFN 是 Transformer block 中参数量最大的部分，约占 2/3
+          - listitem [ref=e769]: σ 是激活函数：原始论文用 ReLU，现代 LLM 几乎全部换为 SwiGLU
+        - heading "## 4.1 SwiGLU：门控机制的引入" [level=3] [ref=e770]
+        - paragraph [ref=e771]:
+          - text: 从 ReLU 到 GELU 再到 SwiGLU 的演进，反映了 LLM 架构中的一个核心发现：
+          - strong [ref=e772]: 让网络自己学会「哪些信息该通过、哪些该抑制」，比用一个固定的激活函数更有效。
+        - generic [ref=e773]:
+          - generic [ref=e777]:
+            - generic [ref=e778]:
+              - generic [ref=e779]:
+                - generic [ref=e780]:
+                  - generic [ref=e781]: S
+                  - generic [ref=e782]: w
+                  - generic [ref=e783]: i
+                  - generic [ref=e784]: G
+                  - generic [ref=e785]: L
+                  - generic [ref=e786]: U
+                - generic [ref=e787]: (
+                - generic [ref=e789]: x
+                - generic [ref=e791]: )
+              - generic [ref=e793]:
+                - generic [ref=e794]: =
+                - generic [ref=e796]: (
+                - generic [ref=e798]: x
+                - generic [ref=e800]: ⋅
+                - generic [ref=e802]:
+                  - generic [ref=e803]: W
+                  - generic [ref=e807]:
+                    - generic [ref=e808]: g
+                    - generic [ref=e809]: a
+                    - generic [ref=e810]: t
+                    - generic [ref=e811]: e
+                - generic [ref=e812]: ⊙
+                - generic [ref=e814]:
+                  - generic [ref=e815]: S
+                  - generic [ref=e816]: i
+                  - generic [ref=e817]: L
+                  - generic [ref=e818]: U
+                - generic [ref=e819]: (
+                - generic [ref=e821]: x
+                - generic [ref=e823]: ⋅
+                - generic [ref=e825]:
+                  - generic [ref=e826]: W
+                  - generic [ref=e828]: "1"
+                - generic [ref=e831]: )
+                - generic [ref=e833]: )
+                - generic [ref=e835]: ⋅
+                - generic [ref=e837]:
+                  - generic [ref=e838]: W
+                  - generic [ref=e840]: "2"
+            - generic [ref=e843]:
+              - generic [ref=e844]:
+                - generic [ref=e845]:
+                  - generic [ref=e846]: S
+                  - generic [ref=e847]: i
+                  - generic [ref=e848]: L
+                  - generic [ref=e849]: U
+                - generic [ref=e850]: (
+                - generic [ref=e852]: x
+                - generic [ref=e854]: )
+              - generic [ref=e856]:
+                - generic [ref=e857]: =
+                - generic [ref=e859]: x
+                - generic [ref=e861]: ⋅
+                - generic [ref=e863]: σ
+                - generic [ref=e865]: (
+                - generic [ref=e867]: x
+                - generic [ref=e869]: )
+          - math [ref=e872]:
+            - generic [ref=e873]:
+              - generic [ref=e874]:
+                - generic [ref=e875]:
+                  - generic [ref=e876]: SwiGLU
+                  - generic [ref=e877]: (
+                  - generic [ref=e878]: x
+                  - generic [ref=e879]: )
+                - generic [ref=e880]:
+                  - generic [ref=e881]: =
+                  - generic [ref=e882]: (
+                  - generic [ref=e883]: x
+                  - generic [ref=e884]: ⋅
+                  - generic [ref=e885]:
+                    - generic [ref=e886]: W
+                    - generic [ref=e887]: gate
+                  - generic [ref=e889]: ⊙
+                  - generic [ref=e890]: SiLU
+                  - generic [ref=e891]: (
+                  - generic [ref=e892]: x
+                  - generic [ref=e893]: ⋅
+                  - generic [ref=e894]:
+                    - generic [ref=e895]: W
+                    - generic [ref=e896]: "1"
+                  - generic [ref=e897]: )
+                  - generic [ref=e898]: )
+                  - generic [ref=e899]: ⋅
+                  - generic [ref=e900]:
+                    - generic [ref=e901]: W
+                    - generic [ref=e902]: "2"
+              - generic [ref=e903]:
+                - generic [ref=e904]:
+                  - generic [ref=e905]: SiLU
+                  - generic [ref=e906]: (
+                  - generic [ref=e907]: x
+                  - generic [ref=e908]: )
+                - generic [ref=e909]:
+                  - generic [ref=e910]: =
+                  - generic [ref=e911]: x
+                  - generic [ref=e912]: ⋅
+                  - generic [ref=e913]: σ
+                  - generic [ref=e914]: (
+                  - generic [ref=e915]: x
+                  - generic [ref=e916]: )
+        - paragraph [ref=e917]:
+          - text: SwiGLU 引入了一个可学习的「门」——
+          - code [ref=e918]: x · W_gate
+          - text: 。这个门与经 SiLU 激活的主通路做逐元素乘法，让网络在每个 token、每个维度上独立决定信息通过量。代价是参数量增加约 33%（多了一个 W_gate 矩阵），但训练稳定性和收敛速度的提升足以抵消这个开销。
+        - table [ref=e919]:
+          - rowgroup [ref=e920]:
+            - row [ref=e921]:
+              - columnheader "模型系列" [ref=e922]
+              - columnheader "FFN 激活" [ref=e923]
+              - columnheader "d_ff 比例" [ref=e924]
+          - rowgroup [ref=e925]:
+            - row [ref=e926]:
+              - cell "原始 Transformer" [ref=e927]
+              - cell "ReLU" [ref=e928]
+              - cell "4×" [ref=e929]
+            - row [ref=e930]:
+              - cell "GPT-2/3" [ref=e931]
+              - cell "GELU" [ref=e932]
+              - cell "4×" [ref=e933]
+            - row [ref=e934]:
+              - cell "LLaMA 1/2/3" [ref=e935]
+              - cell "SwiGLU" [ref=e936]
+              - cell "8/3× (≈2.67×)" [ref=e937]
+            - row [ref=e938]:
+              - cell "Qwen 2" [ref=e939]
+              - cell "SwiGLU" [ref=e940]
+              - cell "8/3×" [ref=e941]
+        - separator [ref=e942]: ◆
+        - heading "❯ 五、位置编码：解决注意力「看不到顺序」的问题" [level=2] [ref=e943]
+        - paragraph [ref=e944]:
+          - text: 自注意力有一个根本性的盲区：
+          - strong [ref=e945]: 它对 token 的位置完全不敏感。
+          - text: 打乱整个输入序列，计算出的注意力分数不变。
+        - paragraph [ref=e946]: 但语言是有严格顺序的。「我打你」和「你打我」共享完全相同的 token 集合，含义却相反。RNN 通过串行计算自然地捕获了顺序——Transformer 的并行注意力牺牲了这一点。因此必须通过额外的机制向模型注入位置信息。
+        - heading "## 5.1 两种注入策略" [level=3] [ref=e947]
+        - paragraph [ref=e948]:
+          - strong [ref=e949]: 加到输入端
+          - text: ：将位置编码 p_i 直接加到 token embedding x_i 上——input_i = x_i + p_i。原始 Transformer 使用固定的正弦/余弦函数生成 p_i，GPT-2/3 则用可学习的 Embedding 表。
+        - paragraph [ref=e950]:
+          - strong [ref=e951]: 融入注意力计算
+          - text: ：不修改 token 表示本身，而是根据位置对 Q 和 K 施加旋转变换。RoPE（旋转位置编码）是这一策略的代表——它将位置信息编码为 Q·K 点积中的相对位置项，天然支持比训练时更长的上下文。
+        - blockquote [ref=e952]:
+          - paragraph [ref=e953]:
+            - text: 详见本目录的
+            - link "位置编码：从 Sinusoidal 到 RoPE" [ref=e954] [cursor=pointer]:
+              - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/positional_encoding/positional_encoding.html
+            - text: 对 RoPE 数学原理与 NTK/YaRN 外推技术的完整推导。
+        - separator [ref=e955]: ◆
+        - heading "❯ 六、层归一化与残差连接：让深网络能训练" [level=2] [ref=e956]
+        - paragraph [ref=e957]: 自注意力和 FFN 解决了信息交换和变换的问题，但直接堆叠几十层会导致训练崩溃——早期的 Transformer 训练到 6 层以上就开始不稳定。
+        - heading "## 6.1 问题：内部协变量漂移" [level=3] [ref=e958]
+        - paragraph [ref=e959]: 深度网络训练中，每层参数的更新会改变该层输出的分布。这种漂移逐层累积，使得底层接收到的梯度信号变得极其不稳定。层归一化（LayerNorm）是解决这一问题的标准手段：
+        - generic [ref=e960]:
+          - generic [aria-hidden] [ref=e961]:
+            - generic [ref=e962]:
+              - generic [ref=e963]: L
+              - generic [ref=e964]: a
+              - generic [ref=e965]: "y"
+              - generic [ref=e966]: e
+              - generic [ref=e967]: r
+              - generic [ref=e968]: "N"
+              - generic [ref=e969]: o
+              - generic [ref=e970]: r
+              - generic [ref=e971]: m
+            - generic [ref=e972]: (
+            - generic [ref=e974]: x
+            - generic [ref=e976]: )
+            - generic [ref=e978]: =
+            - generic [ref=e980]: γ
+            - generic [ref=e982]: ⋅
+            - generic [ref=e985]:
+              - generic [ref=e987]:
+                - generic [ref=e988]: x
+                - generic [ref=e990]: −
+                - generic [ref=e992]: μ
+              - generic [ref=e1000]:
+                - generic [ref=e1001]: √
+                - generic [ref=e1004]:
+                  - generic [ref=e1005]:
+                    - generic [ref=e1006]: σ
+                    - generic [ref=e1008]: "2"
+                  - generic [ref=e1011]: +
+                  - generic [ref=e1013]: ε
+            - generic [ref=e1015]: +
+            - generic [ref=e1017]: β
+          - math [ref=e1020]:
+            - generic [ref=e1021]: LayerNorm
+            - generic [ref=e1022]: (
+            - generic [ref=e1023]: x
+            - generic [ref=e1024]: )
+            - generic [ref=e1025]: =
+            - generic [ref=e1026]: γ
+            - generic [ref=e1027]: ⋅
+            - generic [ref=e1028]:
+              - generic [ref=e1029]:
+                - generic [ref=e1030]: x
+                - generic [ref=e1031]: −
+                - generic [ref=e1032]: μ
+              - generic [ref=e1033]:
+                - generic [ref=e1034]:
+                  - generic [ref=e1035]: σ
+                  - generic [ref=e1036]: "2"
+                - generic [ref=e1037]: +
+                - generic [ref=e1038]: ε
+            - generic [ref=e1039]: +
+            - generic [ref=e1040]: β
+        - paragraph [ref=e1041]:
+          - text: 其中
+          - generic [ref=e1042]:
+            - generic [ref=e1044]: γ
+            - math [ref=e1047]:
+              - generic [ref=e1048]: γ
+          - text: 和
+          - generic [ref=e1049]:
+            - generic [ref=e1051]: β
+            - math [ref=e1054]:
+              - generic [ref=e1055]: β
+          - text: 是可学习的参数，
+          - generic [ref=e1056]:
+            - generic [ref=e1058]: ε
+            - math [ref=e1061]:
+              - generic [ref=e1062]: ε
+          - text: 防止除零。
+        - heading "## 6.2 归一化位置的演化：Post-LN → Pre-LN → RMSNorm" [level=3] [ref=e1063]
+        - table [ref=e1064]:
+          - rowgroup [ref=e1065]:
+            - row [ref=e1066]:
+              - columnheader "变体" [ref=e1067]
+              - columnheader "归一化位置" [ref=e1068]
+              - columnheader "使用情况" [ref=e1069]
+              - columnheader "原因" [ref=e1070]
+          - rowgroup [ref=e1071]:
+            - row [ref=e1072]:
+              - cell "Post-LN" [ref=e1073]
+              - cell "残差连接之后" [ref=e1074]
+              - cell "原始 Transformer" [ref=e1075]
+              - cell "训练不稳定，梯度在深层衰减" [ref=e1076]
+            - row [ref=e1077]:
+              - cell "Pre-LN" [ref=e1078]
+              - cell "残差连接之前（先归一化再计算）" [ref=e1079]
+              - cell "GPT-2/3" [ref=e1080]
+              - cell "训练更稳定，梯度流更通畅" [ref=e1081]
+            - row [ref=e1082]:
+              - cell "RMSNorm" [ref=e1083]
+              - cell "同 Pre-LN，但只做缩放" [ref=e1084]
+              - cell "LLaMA、Qwen、DeepSeek" [ref=e1085]
+              - cell "速度更快，精度无明显损失" [ref=e1086]
+        - paragraph [ref=e1087]: RMSNorm 去掉了均值居中（μ），仅保留均方根缩放。实验证明去掉居中操作对精度影响微乎其微，但省去了一次归约计算——在大规模训练中，这个微观优化累积为可观的加速：
+        - generic [ref=e1088]:
+          - generic [aria-hidden] [ref=e1089]:
+            - generic [ref=e1090]:
+              - generic [ref=e1091]: R
+              - generic [ref=e1092]: M
+              - generic [ref=e1093]: S
+              - generic [ref=e1094]: "N"
+              - generic [ref=e1095]: o
+              - generic [ref=e1096]: r
+              - generic [ref=e1097]: m
+            - generic [ref=e1098]: (
+            - generic [ref=e1100]: x
+            - generic [ref=e1102]: )
+            - generic [ref=e1104]: =
+            - generic [ref=e1106]: γ
+            - generic [ref=e1108]: ⋅
+            - generic [ref=e1111]:
+              - generic [ref=e1112]: x
+              - generic [ref=e1121]:
+                - generic [ref=e1122]: √
+                - generic [ref=e1125]:
+                  - generic [ref=e1126]:
+                    - generic [ref=e1127]: m
+                    - generic [ref=e1128]: e
+                    - generic [ref=e1129]: a
+                    - generic [ref=e1130]: "n"
+                  - generic [ref=e1131]: (
+                  - generic [ref=e1133]:
+                    - generic [ref=e1134]: x
+                    - generic [ref=e1136]: "2"
+                  - generic [ref=e1139]: )
+                  - generic [ref=e1141]: +
+                  - generic [ref=e1143]: ε
+          - math [ref=e1146]:
+            - generic [ref=e1147]: RMSNorm
+            - generic [ref=e1148]: (
+            - generic [ref=e1149]: x
+            - generic [ref=e1150]: )
+            - generic [ref=e1151]: =
+            - generic [ref=e1152]: γ
+            - generic [ref=e1153]: ⋅
+            - generic [ref=e1154]:
+              - generic [ref=e1155]: x
+              - generic [ref=e1156]:
+                - generic [ref=e1157]: mean
+                - generic [ref=e1158]: (
+                - generic [ref=e1159]:
+                  - generic [ref=e1160]: x
+                  - generic [ref=e1161]: "2"
+                - generic [ref=e1162]: )
+                - generic [ref=e1163]: +
+                - generic [ref=e1164]: ε
+        - heading "## 6.3 残差连接：让梯度绕过子层" [level=3] [ref=e1165]
+        - paragraph [ref=e1166]: 有了归一化还不够。堆叠 32 层以上的网络时，梯度在反向传播中经过每一层都会衰减。残差连接提供了一个「快捷通道」——将子层的输入直接加到输出上，让梯度可以绕过子层的反向传播直达输入：
+        - generic [ref=e1167]:
+          - generic [aria-hidden] [ref=e1168]:
+            - generic [ref=e1169]:
+              - generic [ref=e1170]: o
+              - generic [ref=e1171]: u
+              - generic [ref=e1172]: t
+              - generic [ref=e1173]: p
+              - generic [ref=e1174]: u
+              - generic [ref=e1175]: t
+            - generic [ref=e1176]: =
+            - generic [ref=e1178]: x
+            - generic [ref=e1180]: +
+            - generic [ref=e1182]:
+              - generic [ref=e1183]: S
+              - generic [ref=e1184]: u
+              - generic [ref=e1185]: b
+              - generic [ref=e1186]: l
+              - generic [ref=e1187]: a
+              - generic [ref=e1188]: "y"
+              - generic [ref=e1189]: e
+              - generic [ref=e1190]: r
+            - generic [ref=e1191]: (
+            - generic [ref=e1193]:
+              - generic [ref=e1194]: L
+              - generic [ref=e1195]: a
+              - generic [ref=e1196]: "y"
+              - generic [ref=e1197]: e
+              - generic [ref=e1198]: r
+              - generic [ref=e1199]: "N"
+              - generic [ref=e1200]: o
+              - generic [ref=e1201]: r
+              - generic [ref=e1202]: m
+            - generic [ref=e1203]: (
+            - generic [ref=e1205]: x
+            - generic [ref=e1207]: )
+            - generic [ref=e1209]: )
+            - generic [ref=e1211]:
+              - generic [ref=e1212]: （
+              - generic [ref=e1213]: P
+              - generic [ref=e1214]: r
+              - generic [ref=e1215]: e
+              - generic [ref=e1216]: "-"
+              - generic [ref=e1217]: L
+              - generic [ref=e1218]: "N"
+              - generic [ref=e1219]: ：
+              - generic [ref=e1220]: 先
+              - generic [ref=e1221]: 归
+              - generic [ref=e1222]: 一
+              - generic [ref=e1223]: 化
+              - generic [ref=e1224]: 再
+              - generic [ref=e1225]: 进
+              - generic [ref=e1226]: 子
+              - generic [ref=e1227]: 层
+              - generic [ref=e1228]: ，
+              - generic [ref=e1229]: 现
+              - generic [ref=e1230]: 代
+              - generic [ref=e1231]: L
+              - generic [ref=e1232]: L
+              - generic [ref=e1233]: M
+              - generic [ref=e1234]: 的
+              - generic [ref=e1235]: 标
+              - generic [ref=e1236]: 准
+              - generic [ref=e1237]: 做
+              - generic [ref=e1238]: 法
+              - generic [ref=e1239]: ）
+          - math [ref=e1241]:
+            - generic [ref=e1242]: output
+            - generic [ref=e1243]: =
+            - generic [ref=e1244]: x
+            - generic [ref=e1245]: +
+            - generic [ref=e1246]: Sublayer
+            - generic [ref=e1247]: (
+            - generic [ref=e1248]: LayerNorm
+            - generic [ref=e1249]: (
+            - generic [ref=e1250]: x
+            - generic [ref=e1251]: )
+            - generic [ref=e1252]: )
+            - generic [ref=e1253]: （Pre-LN：先归一化再进子层，现代 LLM 的标准做法）
+        - paragraph [ref=e1254]: 梯度可以直接通过「+」操作跳过 Sublayer 的反向传播——这相当于给每一层都提供了一条直达输入的梯度高速公路。没有残差连接，32 层以上的 Transformer 几乎无法训练。
+        - separator [ref=e1255]: ◆
+        - heading "❯ 七、完整数据流：一个 Decoder Block 的标准配方" [level=2] [ref=e1256]
+        - paragraph [ref=e1257]:
+          - text: 将以上所有组件串接起来，以 LLaMA 为例——这是 2024 年主流开源 LLM 共同遵循的「标准配方」。交互可视化版本见
+          - link "Decoder Block 数据流可视化" [ref=e1258] [cursor=pointer]:
+            - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/transformer/transformer_block_visual.html
+          - text: 。
+        - generic [ref=e1261]:
+          - text: ● ● ●
+          - code [ref=e1262]: "输入: token embeddings (batch, seq_len, d_model) │ ├─ 1. RMSNorm ──→ 2. Self-Attention (with RoPE + Causal Mask) │ │ │ ┌──────────────────────────────────┘ │ ▼ │ 3. 残差相加 (+) │ │ │ ▼ ├─ 4. RMSNorm ──→ 5. FFN (SwiGLU) │ │ │ ┌───────────┘ │ ▼ │ 6. 残差相加 (+) │ │ │ ▼ 输出 → 送入下一个 Block（重复 24-80 层，视模型规模而定）"
+        - paragraph [ref=e1263]:
+          - strong [ref=e1264]: 因果掩码
+          - text: 是 Decoder 独有的约束：生成第 t 个 token 时，模型只能看到位置 1 到 t-1，不能「偷看」未来。通过一个上三角为 -∞ 的矩阵实现：
+        - generic [ref=e1267]:
+          - text: ● ● ●
+          - code [ref=e1268]: 因果掩码（seq_len=4）： [ 0, -∞, -∞, -∞ ] [ 0, 0, -∞, -∞ ] [ 0, 0, 0, -∞ ] [ 0, 0, 0, 0 ]
+        - separator [ref=e1269]: ◆
+        - heading "❯ 八、权衡：Transformer 得到了什么，牺牲了什么" [level=2] [ref=e1270]
+        - generic [ref=e1273]:
+          - text: ● ● ●
+          - code [ref=e1274]: 得到 牺牲 ────────────────────── ────────────────── 训练完全并行化 推理仍是自回归串行的 O(1) 步内跨越任意距离 每步的注意力计算是 O(n²) 统一架构替代 RNN/CNN 位置信息需额外编码（RoPE） 易于扩展到千亿参数 显存占用与序列长度平方成正比
+        - paragraph [ref=e1275]:
+          - text: 这些权衡驱动了 Transformer 后续 7 年的演化方向——FlashAttention 缓解了 O(n²) 的内存瓶颈，RoPE+YaRN 让 4K 训练的模型外推到 128K，MoE 在维持推理成本的同时成倍扩大参数容量。这些正是
+          - link "LLM 架构演进史" [ref=e1276] [cursor=pointer]:
+            - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/architecture_evolution/llm_architecture_evolution.html
+          - text: 所覆盖的内容。
+        - heading "## 8.1 关键设计决策对照" [level=3] [ref=e1277]
+        - table [ref=e1278]:
+          - rowgroup [ref=e1279]:
+            - row [ref=e1280]:
+              - columnheader "决策" [ref=e1281]
+              - columnheader "原始 Transformer (2017)" [ref=e1282]
+              - columnheader "现代 LLM (2023+)" [ref=e1283]
+              - columnheader "原因" [ref=e1284]
+          - rowgroup [ref=e1285]:
+            - row [ref=e1286]:
+              - cell "架构" [ref=e1287]
+              - cell "Encoder-Decoder" [ref=e1288]
+              - cell "Decoder-only" [ref=e1289]
+              - cell "生成任务更自然，且在足够大规模下理解与生成统一" [ref=e1290]
+            - row [ref=e1291]:
+              - cell "激活函数" [ref=e1292]
+              - cell "ReLU" [ref=e1293]
+              - cell "SwiGLU" [ref=e1294]
+              - cell "门控机制提供更好的训练动态" [ref=e1295]
+            - row [ref=e1296]:
+              - cell "归一化位置" [ref=e1297]
+              - cell "Post-LN" [ref=e1298]
+              - cell "Pre-LN / RMSNorm" [ref=e1299]
+              - cell "训练稳定性，RMSNorm 进一步节省计算" [ref=e1300]
+            - row [ref=e1301]:
+              - cell "位置编码" [ref=e1302]
+              - cell "Sinusoidal" [ref=e1303]
+              - cell "RoPE" [ref=e1304]
+              - cell "编码相对位置，且支持上下文外推" [ref=e1305]
+            - row [ref=e1306]:
+              - cell "偏置项" [ref=e1307]
+              - cell "有" [ref=e1308]
+              - cell "无" [ref=e1309]
+              - cell "简化模型，精度无明显损失" [ref=e1310]
+            - row [ref=e1311]:
+              - cell "注意力头数" [ref=e1312]
+              - cell "8" [ref=e1313]
+              - cell "32-64" [ref=e1314]
+              - cell "细粒度匹配硬件并行度" [ref=e1315]
+        - separator [ref=e1316]: ◆
+        - heading "❯ 九、相关资源" [level=2] [ref=e1317]
+        - list [ref=e1318]:
+          - listitem [ref=e1319]:
+            - link "Decoder Block 数据流可视化" [ref=e1320] [cursor=pointer]:
+              - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/transformer/transformer_block_visual.html
+            - text: — 本文 §7 的交互可视化，可点击组件查看详情，支持完整流/Attention/FFN 三种视角。
+          - listitem [ref=e1321]:
+            - link "位置编码：从 Sinusoidal 到 RoPE" [ref=e1322] [cursor=pointer]:
+              - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/positional_encoding/positional_encoding.html
+            - text: — RoPE 的数学原理与 NTK/YaRN 外推技术。
+          - listitem [ref=e1323]:
+            - link "LLM 架构演进史" [ref=e1324] [cursor=pointer]:
+              - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/architecture_evolution/llm_architecture_evolution.html
+            - text: — Transformer 诞生后 7 年的关键拐点与「标准配方」的形成。
+          - listitem [ref=e1325]:
+            - link "混合专家 (MoE)" [ref=e1326] [cursor=pointer]:
+              - /url: /06_llm_theory_and_fundamentals/llm_basic_concepts/moe/mixture_of_experts_moe_visual_guide.zh-CN.html
+            - text: — 如何用稀疏激活进一步扩展参数规模。
+          - listitem [ref=e1327]: 《Attention Is All You Need》(2017) — 原始论文。
+          - listitem [ref=e1328]:
+            - text: Jay Alammar,
+            - link "The Illustrated Transformer" [ref=e1329] [cursor=pointer]:
+              - /url: https://jalammar.github.io/illustrated-transformer/
+            - text: — 经典图解教程。
+          - listitem [ref=e1330]:
+            - text: Georgia Tech,
+            - link "Transformer Explainer" [ref=e1331] [cursor=pointer]:
+              - /url: https://poloclub.github.io/transformer-explainer/
+            - text: — 交互式可视化，可逐 token 观察注意力计算。
+          - listitem [ref=e1332]:
+            - link "bbycroft/llm" [ref=e1333] [cursor=pointer]:
+              - /url: https://bbycroft.net/llm
+            - text: — 3D 可视化 GPT 类模型的完整推理过程。
+  - contentinfo [ref=e1334]:
+    - generic [ref=e1335]:
+      - generic [ref=e1336]: "\""
+      - paragraph [ref=e1337]: 所有产品都值得用 AI 重做一遍。
+      - generic [ref=e1338]: — 微软 CEO 萨提亚·纳德拉
+      - paragraph [ref=e1340]: 我们正处在一场深刻变革中，唯有用 AI 赋能自身，才能拥抱未来。 原力注入从云原生迈向 AI 新时代，期待在这个伟大时代中持续成长、不断突破。
