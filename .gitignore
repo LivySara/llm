@@ -19,3 +19,6 @@ bkcodeai.json
 **/venv
 **/.venv
 **/__pycache__
+
+# 本地开发记录（不提交）
+DEV_LOG.md
