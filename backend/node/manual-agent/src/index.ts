@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { OpenaiClient } from './llm/index.js'
 import { createInterface } from 'node:readline'
 import { stdin as input, stdout as output } from "node:process";
