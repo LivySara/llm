@@ -1,0 +1,39 @@
+# 本地依赖：MySQL + Redis
+# 用法：docker compose up -d
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ai-knowledge-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: ai_knowledge
+      TZ: Asia/Shanghai
+    command: --default-time-zone=+08:00
+    volumes:
+      # 仅首次建库时执行初始化脚本
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ai-knowledge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+
+# 本地改动记录，不提交到仓库
+RECORD.md
