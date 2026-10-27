@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>VOA How to Pronounce · 顺序循环播放器</title>
+    <!-- 可添加到主屏幕（PWA） -->
+    <meta name="theme-color" content="#0f1220">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VOA 发音">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <style>
+        :root {
+            --bg: #0f1220;
+            --panel: #171b2e;
+            --line: #2a3050;
+            --text: #e8eaf6;
+            --muted: #9aa3c7;
+            --accent: #4f7cff;
+            --accent2: #22c3a6;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: radial-gradient(1200px 600px at 50% -10%, #1d2440 0%, var(--bg) 55%);
+            color: var(--text);
+            font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 24px 16px 48px;
+            padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+        }
+        .app {
+            width: 100%;
+            max-width: 720px;
+        }
+        .stage {
+            position: relative;
+            background: #000;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 18px 60px rgba(0,0,0,.55);
+            aspect-ratio: 16 / 9;
+        }
+        .stage video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: #000;
+        }
+        .overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            justify-content: center;
+            background: rgba(6, 9, 20, .82);
+            backdrop-filter: blur(2px);
+            text-align: center;
+            padding: 24px;
+            transition: opacity .2s ease;
+        }
+        .overlay.hidden { display: none; }
+        .overlay h1 { font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+        .overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+        .big-btn {
+            appearance: none;
+            border: 0;
+            cursor: pointer;
+            background: linear-gradient(135deg, var(--accent), #6f5cff);
+            color: #fff;
+            font-size: 17px;
+            font-weight: 600;
+            padding: 14px 34px;
+            border-radius: 999px;
+            box-shadow: 0 8px 24px rgba(79,124,255,.45);
+            transition: transform .08s ease, box-shadow .2s ease;
+        }
+        .big-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(79,124,255,.55); }
+        .big-btn:active { transform: translateY(0); }
+
+        .panel {
+            margin-top: 16px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 16px 18px;
+        }
+        .meta-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #0e1224;
+            border: 1px solid var(--line);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 4px 12px;
+            font-variant-numeric: tabular-nums;
+        }
+        .chip b { color: var(--accent2); font-weight: 700; }
+        .title {
+            margin: 12px 0 2px;
+            font-size: 16px;
+            font-weight: 600;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+        .date { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+        .bar {
+            margin-top: 14px;
+            height: 8px;
+            border-radius: 999px;
+            background: #0e1224;
+            overflow: hidden;
+            border: 1px solid var(--line);
+        }
+        .bar > i {
+            display: block;
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            transition: width .25s ease;
+        }
+        .bar-label {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .controls {
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .btn {
+            appearance: none;
+            cursor: pointer;
+            background: #0e1224;
+            border: 1px solid var(--line);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 9px 16px;
+            font-size: 14px;
+            transition: border-color .15s ease, background .15s ease;
+        }
+        .btn:hover { border-color: var(--accent); }
+        .btn.primary { background: linear-gradient(135deg, var(--accent), #6f5cff); border-color: transparent; font-weight: 600; }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+        .spacer { flex: 1 1 auto; }
+        .speed {
+            display: inline-flex;
+            background: #0e1224;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .speed button {
+            appearance: none;
+            background: transparent;
+            border: 0;
+            color: var(--muted);
+            padding: 9px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            font-variant-numeric: tabular-nums;
+        }
+        .speed button.active { background: #1e2748; color: var(--text); font-weight: 700; }
+        .status { margin-top: 10px; min-height: 18px; font-size: 12px; color: var(--muted); }
+        .status.err { color: #ff8a8a; }
+        .hint { margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+        /* 手机上：倍速按钮换行不裁切，键盘快捷键提示无意义则隐藏 */
+        @media (max-width: 480px) {
+            .speed { flex: 1 1 100%; flex-wrap: wrap; }
+            .speed button { flex: 1 1 auto; padding: 9px 8px; }
+            .btn { padding: 9px 14px; }
+        }
+        @media (hover: none) and (pointer: coarse) {
+            .hint { display: none; }
+        }
+        kbd {
+            background: #0e1224; border: 1px solid var(--line); border-bottom-width: 2px;
+            border-radius: 5px; padding: 1px 6px; font-size: 11px; font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="stage">
+        <video id="video" playsinline preload="auto"></video>
+        <div class="overlay" id="overlay">
+            <div>
+                <h1>VOA · How to Pronounce</h1>
+                <p id="overlayInfo">共 __ 集，按时间升序播放，每集循环 5 次</p>
+            </div>
+            <button class="big-btn" id="startBtn">开始播放</button>
+            <p style="font-size:12px">提示：浏览器要求先点击一次才能播放带声音的视频</p>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="meta-top">
+            <span class="chip">视频 <b id="idxNow">-</b> / <span id="idxTotal">-</span></span>
+            <span class="chip">第 <b id="repNow">-</b> / <span id="repTotal">5</span> 次</span>
+            <span class="chip" id="timeChip">0:00 / 0:00</span>
+        </div>
+
+        <div class="title" id="title">—</div>
+        <div class="date" id="date">—</div>
+
+        <div class="bar"><i id="barFill"></i></div>
+        <div class="bar-label">
+            <span>本集播放进度</span>
+            <span id="barPct">0%</span>
+        </div>
+
+        <div class="controls">
+            <button class="btn primary" id="toggleBtn">暂停</button>
+            <button class="btn" id="nextBtn">下一个</button>
+            <button class="btn" id="prevBtn">上一个</button>
+            <button class="btn" id="resetBtn">重置</button>
+            <span class="spacer"></span>
+            <span class="speed" id="speed">
+                <button data-rate="0.25">0.25x</button>
+                <button data-rate="0.5">0.5x</button>
+                <button data-rate="0.75">0.75x</button>
+                <button data-rate="1" class="active">1x</button>
+                <button data-rate="1.25">1.25x</button>
+                <button data-rate="1.5">1.5x</button>
+                <button data-rate="2">2x</button>
+            </span>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="hint">
+            快捷键：<kbd>空格</kbd> 播放/暂停 · <kbd>→</kbd> 下一个 · <kbd>←</kbd> 上一个 · <kbd>R</kbd> 重置
+        </div>
+    </div>
+</div>
+
+<!-- 播放列表：由 crawl_voa.py 生成，挂载到 window.VOA_PLAYLIST -->
+<script src="playlist.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    var REPEATS = 5;
+
+    var playlist = Array.isArray(window.VOA_PLAYLIST) ? window.VOA_PLAYLIST : [];
+
+    var video = document.getElementById("video");
+    var overlay = document.getElementById("overlay");
+    var overlayInfo = document.getElementById("overlayInfo");
+    var startBtn = document.getElementById("startBtn");
+
+    var idxNow = document.getElementById("idxNow");
+    var idxTotal = document.getElementById("idxTotal");
+    var repNow = document.getElementById("repNow");
+    var repTotal = document.getElementById("repTotal");
+    var timeChip = document.getElementById("timeChip");
+    var titleEl = document.getElementById("title");
+    var dateEl = document.getElementById("date");
+    var barFill = document.getElementById("barFill");
+    var barPct = document.getElementById("barPct");
+    var statusEl = document.getElementById("status");
+    var toggleBtn = document.getElementById("toggleBtn");
+    var nextBtn = document.getElementById("nextBtn");
+    var prevBtn = document.getElementById("prevBtn");
+    var resetBtn = document.getElementById("resetBtn");
+    var speedBox = document.getElementById("speed");
+
+    // 状态
+    var index = 0;        // 当前视频序号 0-based
+    var repeat = 1;       // 当前视频第几次（1..REPEATS）
+    var started = false;  // 是否已点开始
+    var paused = false;   // 用户暂停
+    var rate = 1;         // 倍速
+    var finishing = false;// 全部完成
+
+    var STORAGE_KEY = "voa_how_to_pronounce_state_v1";
+
+    function pad(n) { return n < 10 ? "0" + n : "" + n; }
+    function fmtTime(s) {
+        if (!isFinite(s) || s < 0) s = 0;
+        s = Math.floor(s);
+        var m = Math.floor(s / 60);
+        var ss = s % 60;
+        return m + ":" + pad(ss);
+    }
+
+    function current() { return playlist[index]; }
+
+    function setStatus(text, isErr) {
+        statusEl.textContent = text || "";
+        statusEl.className = "status" + (isErr ? " err" : "");
+    }
+
+    function saveState() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ index: index, repeat: repeat, rate: rate }));
+        } catch (e) { /* ignore */ }
+    }
+
+    function loadState() {
+        try {
+            var raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            var s = JSON.parse(raw);
+            if (typeof s.index === "number" && s.index >= 0 && s.index < playlist.length) index = s.index;
+            if (typeof s.repeat === "number" && s.repeat >= 1 && s.repeat <= REPEATS) repeat = s.repeat;
+            if (typeof s.rate === "number" && [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].indexOf(s.rate) !== -1) {
+                rate = s.rate;
+                syncSpeedButtons();
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    function syncSpeedButtons() {
+        Array.prototype.forEach.call(speedBox.querySelectorAll("button"), function (b) {
+            b.classList.toggle("active", parseFloat(b.getAttribute("data-rate")) === rate);
+        });
+    }
+
+    function updateMeta() {
+        if (!playlist.length) {
+            idxTotal.textContent = "0";
+            repTotal.textContent = String(REPEATS);
+            return;
+        }
+        idxNow.textContent = String(index + 1);
+        idxTotal.textContent = String(playlist.length);
+        repNow.textContent = String(repeat);
+        repTotal.textContent = String(REPEATS);
+
+        var it = current();
+        titleEl.textContent = it.title || "（无标题）";
+        dateEl.textContent = it.date || "";
+
+        var total = playlist.length * REPEATS;
+        // 已完成的“次数” = index*REPEATS + (repeat-1)
+        var done = index * REPEATS + (repeat - 1);
+        // 总进度用视频维度（更直观）
+        var vpct = ((index) / playlist.length) * 100;
+        barFill.style.width = vpct.toFixed(2) + "%";
+        barPct.textContent = Math.round(vpct) + "%";
+
+        saveState();
+        void done; void total;
+    }
+
+    function updateTime() {
+        var cur = video.currentTime || 0;
+        var dur = video.duration || 0;
+        timeChip.textContent = fmtTime(cur) + " / " + fmtTime(dur);
+        if (dur > 0) {
+            var p = (cur / dur) * 100;
+            // 用整体进度条同时反映当前视频进度时会更乱，这里改成显示当前视频进度
+            barFill.style.width = p.toFixed(2) + "%";
+            barPct.textContent = Math.round(p) + "%";
+        }
+    }
+
+    function applyRate() {
+        try { video.playbackRate = rate; } catch (e) { /* ignore */ }
+    }
+
+    // 设置当前视频源并播放
+    function loadAndPlay(useFallback) {
+        var it = current();
+        if (!it) return;
+
+        var src = useFallback ? (it.url360 || it.url720) : (it.url720 || it.url360);
+        video.dataset.level = useFallback ? "360" : "720";
+
+        setStatus(useFallback ? "720p 不可用，已切换到 360p" : "");
+        // 避免同一地址不触发 loadedmetadata
+        video.src = src;
+        applyRate();
+
+        var p = video.play();
+        if (p && typeof p.catch === "function") {
+            p.catch(function (err) {
+                if (err && err.name === "NotAllowedError") {
+                    // 需要用户手势，弹回遮罩
+                    setStatus("浏览器拦截了自动播放，请点击“继续播放”", true);
+                    showOverlay("继续播放", "点击继续从当前剧集播放");
+                } else if (err && err.name === "NotSupportedError") {
+                    handleError();
+                }
+            });
+        }
+    }
+
+    function handleError() {
+        var it = current();
+        if (!it) return;
+        if (video.dataset.level !== "360" && it.url360 && it.url360 !== it.url720) {
+            // 720p 失败 -> 360p
+            loadAndPlay(true);
+        } else {
+            // 彻底失败 -> 跳过
+            setStatus("该视频无法播放，已跳过：" + (it.title || ""), true);
+            advance();
+        }
+    }
+
+    function showOverlay(btnText, infoText) {
+        overlay.classList.remove("hidden");
+        startBtn.textContent = btnText || "开始播放";
+        if (infoText) overlayInfo.textContent = infoText;
+        started = false;
+    }
+
+    function hideOverlay() {
+        overlay.classList.add("hidden");
+    }
+
+    // 进入下一个视频
+    function advance() {
+        if (index >= playlist.length - 1) {
+            finishAll();
+            return;
+        }
+        index += 1;
+        repeat = 1;
+        updateMeta();
+        loadAndPlay(false);
+    }
+
+    function goTo(i) {
+        if (i < 0) i = 0;
+        if (i > playlist.length - 1) i = playlist.length - 1;
+        index = i;
+        repeat = 1;
+        updateMeta();
+        loadAndPlay(false);
+    }
+
+    function finishAll() {
+        finishing = true;
+        started = false;
+        video.pause();
+        setStatus("全部 216 集播放完毕 🎉");
+        overlay.classList.remove("hidden");
+        startBtn.textContent = "重新开始";
+        overlayInfo.textContent = "所有视频（每集 5 次）已播放完毕";
+    }
+
+    // 播放结束 -> 处理重复
+    video.addEventListener("ended", function () {
+        if (!started) return;
+        if (repeat < REPEATS) {
+            repeat += 1;
+            updateMeta();
+            video.currentTime = 0;
+            var p = video.play();
+            if (p && p.catch) p.catch(function () {});
+        } else {
+            advance();
+        }
+    });
+
+    video.addEventListener("error", function () {
+        if (!started) return;
+        handleError();
+    });
+
+    video.addEventListener("timeupdate", updateTime);
+    video.addEventListener("loadedmetadata", function () {
+        applyRate();
+        updateTime();
+    });
+    video.addEventListener("play", function () {
+        paused = false;
+        toggleBtn.textContent = "暂停";
+    });
+    video.addEventListener("pause", function () {
+        // 只有在用户暂停（非切换/结束时）才更新按钮
+        if (!video.ended) {
+            paused = true;
+            toggleBtn.textContent = "播放";
+        }
+    });
+
+    // ------- 交互 -------
+
+    startBtn.addEventListener("click", function () {
+        if (finishing) {
+            // 重新开始
+            finishing = false;
+            index = 0;
+            repeat = 1;
+            updateMeta();
+        }
+        started = true;
+        paused = false;
+        hideOverlay();
+        loadAndPlay(false);
+    });
+
+    toggleBtn.addEventListener("click", function () {
+        if (!started) {
+            started = true;
+            hideOverlay();
+            loadAndPlay(false);
+            return;
+        }
+        if (video.paused) {
+            video.play().catch(function(){});
+        } else {
+            video.pause();
+        }
+    });
+
+    nextBtn.addEventListener("click", function () {
+        if (!started) { started = true; hideOverlay(); }
+        advance();
+    });
+
+    prevBtn.addEventListener("click", function () {
+        if (!started) { started = true; hideOverlay(); }
+        goTo(index - 1);
+    });
+
+    resetBtn.addEventListener("click", function () {
+        finishing = false;
+        index = 0;
+        repeat = 1;
+        updateMeta();
+        if (started) {
+            loadAndPlay(false);
+        } else {
+            showOverlay("开始播放", "共 " + playlist.length + " 集，按时间升序播放，每集循环 5 次");
+        }
+    });
+
+    speedBox.addEventListener("click", function (e) {
+        var b = e.target.closest("button[data-rate]");
+        if (!b) return;
+        rate = parseFloat(b.getAttribute("data-rate"));
+        applyRate();
+        syncSpeedButtons();
+        saveState();
+    });
+
+    document.addEventListener("keydown", function (e) {
+        if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+        if (e.code === "Space") {
+            e.preventDefault();
+            toggleBtn.click();
+        } else if (e.code === "ArrowRight") {
+            e.preventDefault();
+            nextBtn.click();
+        } else if (e.code === "ArrowLeft") {
+            e.preventDefault();
+            prevBtn.click();
+        } else if (e.code === "KeyR") {
+            resetBtn.click();
+        }
+    });
+
+    // ------- 初始化 -------
+
+    if (!playlist.length) {
+        overlayInfo.textContent = "未找到播放列表：请先运行 python english/scripts/crawl_voa.py 生成 playlist.js";
+        startBtn.disabled = true;
+        setStatus("播放列表为空", true);
+        return;
+    }
+
+    loadState();
+    updateMeta();
+    overlayInfo.textContent =
+        "共 " + playlist.length + " 集，按时间升序播放，每集循环 " + REPEATS + " 次" +
+        (index > 0 ? "（将从上次位置：第 " + (index + 1) + " 集继续）" : "");
+
+    // 预载第一集（不播放），点击开始后可立即播
+    (function preload() {
+        var it = current();
+        if (!it) return;
+        video.src = it.url720 || it.url360;
+        video.dataset.level = "720";
+        applyRate();
+        updateTime();
+    })();
+})();
+</script>
+
+<!-- 注册 Service Worker：https 或 localhost 下才生效，file:// 打开时自动跳过 -->
+<script>
+(function () {
+    if (!("serviceWorker" in navigator)) return;
+    if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return;
+    window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function () { /* 离线能力不可用不影响播放 */ });
+    });
+})();
+</script>
+</body>
+</html>

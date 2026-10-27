@@ -1,0 +1,40 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - heading "VOA · How to Pronounce" [level=1] [ref=e7]
+      - paragraph [ref=e8]: 共 216 集，按时间升序播放，每集循环 5 次
+    - button "开始播放" [ref=e9] [cursor=pointer]
+    - paragraph [ref=e10]: 提示：浏览器要求先点击一次才能播放带声音的视频
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - text: 视频
+        - generic [ref=e14]: "1"
+        - text: /
+        - generic [ref=e15]: "216"
+      - generic [ref=e16]:
+        - text: 第
+        - generic [ref=e17]: "1"
+        - text: /
+        - generic [ref=e18]: "5"
+        - text: 次
+      - generic [ref=e19]: 0:00 / 2:38
+    - generic [ref=e20]: How to Pronounce the Sound /p/ and /b/
+    - generic [ref=e21]: 2020-04-02
+    - generic [ref=e23]:
+      - generic [ref=e24]: 本集播放进度
+      - generic [ref=e25]: 0%
+    - generic [ref=e26]:
+      - button "暂停" [ref=e27] [cursor=pointer]
+      - button "下一个" [ref=e28] [cursor=pointer]
+      - button "上一个" [ref=e29] [cursor=pointer]
+      - button "重置" [ref=e30] [cursor=pointer]
+      - generic [ref=e31]:
+        - button "0.25x" [ref=e32] [cursor=pointer]
+        - button "0.5x" [ref=e33] [cursor=pointer]
+        - button "0.75x" [ref=e34] [cursor=pointer]
+        - button "1x" [ref=e35] [cursor=pointer]
+        - button "1.25x" [ref=e36] [cursor=pointer]
+        - button "1.5x" [ref=e37] [cursor=pointer]
+        - button "2x" [ref=e38] [cursor=pointer]
+    - generic [ref=e40]: 快捷键：空格 播放/暂停 · → 下一个 · ← 上一个 · R 重置
