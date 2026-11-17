@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>自律监督 · 每日作息提醒</title>
+    <meta name="theme-color" content="#0F1220">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="自律监督">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark">✓</div>
+                <div class="brand-text">
+                    <h1>自律监督</h1>
+                    <p id="dateLine">—</p>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <div class="clock" id="clock">--:--:--</div>
+                <button class="notify-btn" id="notifyBtn" type="button">开启提醒</button>
+            </div>
+        </header>
+
+        <div class="day-note" id="dayNote">按本地时间统计</div>
+
+        <div class="cal-tip">
+            <div class="cal-tip-text">
+                <strong>到点提醒请用系统日历</strong>
+                <span>微信 / 浏览器不会后台推送，导入后锁屏也能响</span>
+                <span class="cal-tip-sub">iPhone 请在 Safari 打开本页；若变成下载，去「文件」App 点开加入日历</span>
+            </div>
+            <a class="cal-link" href="daily-reminder.ics">导入日历提醒</a>
+        </div>
+
+        <section class="hero" id="hero">
+            <div class="hero-top">
+                <span class="hero-label" id="heroLabel">当前该做</span>
+                <div class="progress-ring" id="progressRing" aria-hidden="true"></div>
+            </div>
+            <div class="hero-body">
+                <div class="hero-time" id="heroTime">--:--</div>
+                <h2 class="hero-title" id="heroTitle">加载中…</h2>
+                <p class="hero-desc" id="heroDesc"></p>
+                <div class="countdown" id="countdown"></div>
+            </div>
+            <button class="hero-action" id="heroAction" type="button">一键完成</button>
+        </section>
+
+        <main>
+            <section class="panel" id="today">
+                <div class="section-head">
+                    <h2>今日清单</h2>
+                    <span class="section-meta" id="progressText">0 / 6</span>
+                </div>
+                <div class="timeline-hint">点卡片打卡 ✓　·　点右侧方框标记没做 ✗　·　过点未打卡自动显示 ✗</div>
+                <div class="timeline" id="timeline"></div>
+            </section>
+
+            <section class="panel" id="stats">
+                <div class="section-head">
+                    <h2>监督统计</h2>
+                    <span class="section-meta">坚持就是胜利</span>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card streak-card">
+                        <div class="stat-label">连续达标</div>
+                        <div class="stat-value"><span id="streakValue">0</span><small>天</small></div>
+                        <div class="stat-hint">6 项全部完成算达标</div>
+                    </div>
+                    <div class="stat-card rate-card">
+                        <div class="stat-label">近 7 天完成率</div>
+                        <div class="rate-wrap">
+                            <div class="rate-ring" id="rateRing" aria-hidden="true"></div>
+                            <div class="rate-value" id="rateValue">0%</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bars" id="bars"></div>
+            </section>
+        </main>
+
+        <div class="bottom-space"></div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="页面导航">
+        <a href="#today" class="nav-item active" data-nav="today">今日</a>
+        <a href="#stats" class="nav-item" data-nav="stats">统计</a>
+    </nav>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
